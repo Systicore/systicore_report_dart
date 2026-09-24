@@ -1,0 +1,29 @@
+name: systicore_report
+description: >-
+  Error reporting client for Flutter apps that send crashes, unhandled
+  errors and failed HTTP calls to the Systicore reports backend
+  (POST /api/v1/ingest with a per-component ingest key).
+version: 0.1.0
+repository: https://github.com/Systicore/systicore_report_dart
+publish_to: none
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+# Constraints are deliberately wide: the consuming apps pin different
+# majors of the plus plugins (reverba device_info_plus ^11, spike and
+# passguard ^12; conduo package_info_plus ^8, passguard ^9) and the package
+# must resolve next to all of them without forcing an upgrade.
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.7.0
+  device_info_plus: ">=11.0.0 <13.0.0"
+  package_info_plus: ">=8.0.0 <10.0.0"
+  path_provider: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ">=5.0.0 <7.0.0"

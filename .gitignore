@@ -1,0 +1,22 @@
+# Dart / Flutter tooling
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# A package does not commit its lock file: consumers resolve their own.
+pubspec.lock
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment files never belong in the repository.
+.env
+.env.*
