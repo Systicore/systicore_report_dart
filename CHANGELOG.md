@@ -17,4 +17,6 @@ the keyed ingest API (`POST /api/v1/ingest`, contract v1).
   New reports are written right away; removals after delivery are batched
   (at most every 2 s and when a delivery run ends), and each report is
   JSON-encoded only once.
+- `error.type` is left out in minified (web release) and obfuscated builds,
+  whose class names change with every build.
 - Random install id; web-safe device info without the Windows computer name.
