@@ -6,6 +6,10 @@ import '../support/clock.dart';
 ///
 /// The key approximates the server-side fingerprint: type/code, the message
 /// with digit runs collapsed, the action and the first stack frame.
+///
+/// Checking and recording are separate steps: an error only counts as seen
+/// once it was actually taken, so a repeat of one that was dropped (for
+/// example by the rate limit) is not mistaken for a duplicate.
 class DuplicateFilter {
   DuplicateFilter({
     required Clock clock,
@@ -19,16 +23,19 @@ class DuplicateFilter {
   static final RegExp _digitRun = RegExp(r'\d+');
   static const int _maxMessageLengthInKey = 300;
 
-  /// True when an equivalent error was already let through within
-  /// [window]; otherwise records this one and returns false.
+  /// True when an equivalent error was [remember]ed within [window]. Does
+  /// not record anything.
   bool isDuplicate(CapturedError captured) {
     final now = _clock();
     _forgetExpired(now);
-    final key = keyOf(captured);
-    final lastSeen = _lastSeenByKey[key];
-    if (lastSeen != null && now.difference(lastSeen) < window) return true;
-    _lastSeenByKey[key] = now;
-    return false;
+    final lastSeen = _lastSeenByKey[keyOf(captured)];
+    return lastSeen != null && now.difference(lastSeen) < window;
+  }
+
+  /// Records [captured] as let through now, so its repeats within [window]
+  /// are duplicates.
+  void remember(CapturedError captured) {
+    _lastSeenByKey[keyOf(captured)] = _clock();
   }
 
   static String keyOf(CapturedError captured) {

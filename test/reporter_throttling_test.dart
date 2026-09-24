@@ -37,6 +37,32 @@ void main() {
       expect(harness.transport.sent, hasLength(30));
     });
 
+    test('an error dropped by the rate limit is sent once the window frees up',
+        () async {
+      final harness = ReporterHarness();
+      await harness.start();
+      for (var index = 0; index < 30; index++) {
+        harness.reporter.captureException(
+          StateError('error $index'),
+          null,
+          action: 'action $index',
+        );
+      }
+      harness.clock.advance(const Duration(seconds: 30));
+
+      final whileLimited =
+          harness.reporter.captureException(StateError('late'), null);
+      harness.clock.advance(const Duration(seconds: 30));
+      final afterWindow =
+          harness.reporter.captureException(StateError('late'), null);
+      await harness.reporter.flush();
+
+      expect(whileLimited, isFalse);
+      expect(afterWindow, isTrue);
+      expect(harness.transport.sent, hasLength(31));
+      expect(harness.transport.sent.last.error['message'], 'Bad state: late');
+    });
+
     test('a report without type, code or message is not sent', () async {
       final harness = ReporterHarness();
       await harness.start();

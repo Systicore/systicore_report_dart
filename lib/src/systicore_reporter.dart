@@ -372,6 +372,9 @@ class SysticoreReporter {
     }
   }
 
+  // A repeat of an error taken within the last minute counts as taken over.
+  // The error is only remembered once the rate limit let it through, so a
+  // repeat of a dropped error is sent (or dropped) on its own merits.
   bool _accept(CapturedError captured) {
     if (!captured.hasIdentity) return false;
     if (_duplicateFilter.isDuplicate(captured)) return true;
@@ -379,6 +382,7 @@ class SysticoreReporter {
       ReporterLog.debug('Client-side rate limit reached; report dropped');
       return false;
     }
+    _duplicateFilter.remember(captured);
     if (_phase == _Phase.active) {
       _enqueue(captured);
     } else {

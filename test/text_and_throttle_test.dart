@@ -18,21 +18,30 @@ CapturedError capturedError(String message, {String action = 'sync'}) =>
 
 void main() {
   group('DuplicateFilter', () {
-    test('suppresses the same error within 60 seconds', () {
+    test('suppresses a remembered error within 60 seconds', () {
       final clock = FakeClock();
       final filter = DuplicateFilter(clock: clock.call);
 
       expect(filter.isDuplicate(capturedError('item 8812 failed')), isFalse);
+      filter.remember(capturedError('item 8812 failed'));
       clock.advance(const Duration(seconds: 59));
       expect(filter.isDuplicate(capturedError('item 9913 failed')), isTrue);
       clock.advance(const Duration(seconds: 1));
       expect(filter.isDuplicate(capturedError('item 8812 failed')), isFalse);
     });
 
-    test('different actions are different errors', () {
+    test('checking alone does not record the error', () {
       final filter = DuplicateFilter(clock: FakeClock().call);
 
-      expect(filter.isDuplicate(capturedError('failed', action: 'a')), isFalse);
+      expect(filter.isDuplicate(capturedError('failed')), isFalse);
+      expect(filter.isDuplicate(capturedError('failed')), isFalse);
+    });
+
+    test('different actions are different errors', () {
+      final filter = DuplicateFilter(clock: FakeClock().call)
+        ..remember(capturedError('failed', action: 'a'));
+
+      expect(filter.isDuplicate(capturedError('failed', action: 'a')), isTrue);
       expect(filter.isDuplicate(capturedError('failed', action: 'b')), isFalse);
     });
   });
