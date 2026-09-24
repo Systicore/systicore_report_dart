@@ -153,6 +153,21 @@ reporter.addBreadcrumb('opened vault', category: BreadcrumbCategory.nav);
 await reporter.flush();                                       // e.g. when the app goes to the background
 ```
 
+### Web release and obfuscated builds
+
+`captureException` and the global handlers send the error's class name as
+`type`, and the backend groups by `type` first. Flutter web release builds
+(minified by dart2js) and native builds made with `--obfuscate` rename
+classes: `runtimeType` there gives names like `minified:Ab` that change
+with every build, so each release would open new groups. The reporter
+detects such builds and leaves `type` out. Grouping then falls back to the
+code and the message:
+
+- Errors from the global handlers carry the code `FLUTTER_ERROR` or
+  `UNHANDLED`.
+- For `captureException`, pass a stable `code` (e.g. `VAULT_SYNC_FAILED`)
+  for every error you catch in code that ships to the web or obfuscated.
+
 ## Delivery rules
 
 | Backend answer         | Client behaviour                                                        |

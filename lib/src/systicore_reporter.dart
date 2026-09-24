@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'capture/captured_error.dart';
+import 'capture/error_type_namer.dart';
 import 'capture/payload_builder.dart';
 import 'capture/report_envelope.dart';
 import 'config/reporter_config.dart';
@@ -43,6 +44,7 @@ class ReporterDependencies {
     this.clock,
     this.createTimer,
     this.platformDispatcher,
+    this.errorTypeNamer,
   });
 
   final ReporterStorage? storage;
@@ -51,6 +53,7 @@ class ReporterDependencies {
   final Clock? clock;
   final TimerFactory? createTimer;
   final PlatformDispatcher? platformDispatcher;
+  final ErrorTypeNamer? errorTypeNamer;
 }
 
 enum _Phase { awaitingInit, initialising, active, disabled }
@@ -72,7 +75,8 @@ class SysticoreReporter {
         _clock = dependencies.clock ?? systemClock,
         _duplicateFilter =
             DuplicateFilter(clock: dependencies.clock ?? systemClock),
-        _rateLimiter = RateLimiter(clock: dependencies.clock ?? systemClock);
+        _rateLimiter = RateLimiter(clock: dependencies.clock ?? systemClock),
+        _errorTypeNamer = dependencies.errorTypeNamer ?? ErrorTypeNamer();
 
   /// The app-wide reporter.
   static final SysticoreReporter instance = SysticoreReporter();
@@ -85,6 +89,7 @@ class SysticoreReporter {
   final Clock _clock;
   final DuplicateFilter _duplicateFilter;
   final RateLimiter _rateLimiter;
+  final ErrorTypeNamer _errorTypeNamer;
   final BreadcrumbTrail _breadcrumbs = BreadcrumbTrail();
   final List<CapturedError> _capturedBeforeInit = [];
 
@@ -140,6 +145,10 @@ class SysticoreReporter {
 
   /// Reports a caught exception. Returns true when the reporter took it
   /// over (queued, or a duplicate of one queued within the last minute).
+  ///
+  /// The class name is sent as `type`, except in minified (web release) and
+  /// obfuscated builds, whose class names change with every build. There,
+  /// pass a stable [code] so the backend keeps grouping the error.
   bool captureException(
     Object error,
     StackTrace? stackTrace, {
@@ -149,7 +158,7 @@ class SysticoreReporter {
     String? code,
   }) {
     return _captureError(
-      type: _typeNameOf(error),
+      type: _errorTypeNamer.nameOf(error),
       code: code,
       message: _describe(error),
       trace: stackTrace?.toString(),
@@ -320,7 +329,7 @@ class SysticoreReporter {
     // Silent errors (e.g. a failed network image) are expected noise.
     if (details.silent) return false;
     return _captureError(
-      type: _typeNameOf(details.exception),
+      type: _errorTypeNamer.nameOf(details.exception),
       code: _flutterErrorCode,
       message: _describeFlutterError(details),
       trace: details.stack?.toString(),
@@ -330,7 +339,7 @@ class SysticoreReporter {
 
   bool _captureUncaughtError(Object error, StackTrace stackTrace) {
     return _captureError(
-      type: _typeNameOf(error),
+      type: _errorTypeNamer.nameOf(error),
       code: _uncaughtErrorCode,
       message: _describe(error),
       trace: stackTrace.toString(),
@@ -445,8 +454,6 @@ class SysticoreReporter {
     final token = (await accessTokenProvider())?.trim() ?? '';
     return token.isEmpty ? null : token;
   }
-
-  static String _typeNameOf(Object error) => error.runtimeType.toString();
 
   static String _describe(Object error) {
     try {
