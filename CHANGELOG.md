@@ -4,7 +4,7 @@
 
 First release: extracted from the `ErrorReporter` / `ReportAPI` /
 `DeviceInfoService` copies in passguard_mobile and spike_mobile, moved onto
-the keyed ingest API (`POST /api/v1/ingest`, contract v1).
+the keyed ingest API (`POST /api/v1/ingest`, contract v1.1).
 
 - `SysticoreReporter` with `init`, `report` (old call shape),
   `captureException`, `setUser`, `setRoute`, `addBreadcrumb`, `flush`.
@@ -20,3 +20,5 @@ the keyed ingest API (`POST /api/v1/ingest`, contract v1).
 - `error.type` is left out in minified (web release) and obfuscated builds,
   whose class names change with every build.
 - Random install id; web-safe device info without the Windows computer name.
+- Only a public `scpk_` ingest key is accepted. A secret `scsk_` key, or
+  any other key, leaves reporting off like an empty key.

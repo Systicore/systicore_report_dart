@@ -3,13 +3,15 @@
 Error reporting for Flutter apps into the Systicore reports backend. It sends
 framework errors, uncaught errors, failed HTTP calls and manual reports to
 `POST {REPORTS_URL}/api/v1/ingest`, identified by the component's public
-ingest key (`pk_…`). It follows the shared error-reporting contract v1, §3
-and §8.
+ingest key (`scpk_…`). It follows the shared error-reporting contract v1.1,
+§3 and §8.
 
 - Every call is fire-and-forget. The reporter never throws into the app and
   never waits on the network on the UI path.
-- With `REPORTS_ENABLED=false`, or with an empty URL or key, every call is a
-  no-op.
+- With `REPORTS_ENABLED=false`, with an empty URL, or with a key that is not
+  a public `scpk_` key, every call is a no-op. A secret `scsk_` key is
+  refused: it belongs to a backend, and anyone can extract it from an app
+  build.
 - Reports are sent whether or not a user is signed in. When a Systicore
   access token is available, the backend marks the user as verified.
 - Undelivered reports are kept in a persistent queue and sent again on the
@@ -39,7 +41,7 @@ apps already pin: `dio ^5.7.0`, `device_info_plus >=11 <13`,
 |-------------------|-------------------------------------------------------------------------|-----------------|
 | `REPORTS_ENABLED` | Master switch. Keep it off in dev and local builds.                      | `false`         |
 | `REPORTS_URL`     | Reports backend base URL, e.g. `https://reports.systicore.hu`            | empty = off     |
-| `REPORTS_KEY`     | The component's public ingest key (`pk_live_…` / `pk_test_…`)            | empty = off     |
+| `REPORTS_KEY`     | The component's public ingest key (`scpk_live_…` / `scpk_test_…`)        | empty or not `scpk_` = off |
 | `GIT_SHA`         | Commit the build was made from → `release.commit`                         | not sent        |
 | `APP_VERSION`     | Release version → `release.version`                                       | PackageInfo `version+buildNumber` |
 | `ENV`             | `production` / `development` / … (informational; the key's environment wins) | `development` |
@@ -56,8 +58,9 @@ flutter build apk --release \
 
 `ReporterConfig.fromDartDefines(...)` reads all of these. You can also
 build a `ReporterConfig` yourself, for example from an existing `AppConfig`
-class. Keys never go into the repository: the `pk_` key comes from the
-build or CI environment.
+class. Keys never go into the repository: the `scpk_` key comes from the
+build or CI environment. Never pass a secret `scsk_` key: the reporter
+refuses it and stays off (a debug build logs why).
 
 ## main.dart
 
