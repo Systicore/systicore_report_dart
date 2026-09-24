@@ -14,4 +14,7 @@ the keyed ingest API (`POST /api/v1/ingest`, contract v1).
 - `ReportingInterceptor` for Dio: 5xx, connection errors and timeouts.
 - Persistent queue (max 50), buffering before `init`, client-side dedup and
   rate limit, 401/403 circuit breaker, `Retry-After`, exponential backoff.
+  New reports are written right away; removals after delivery are batched
+  (at most every 2 s and when a delivery run ends), and each report is
+  JSON-encoded only once.
 - Random install id; web-safe device info without the Windows computer name.

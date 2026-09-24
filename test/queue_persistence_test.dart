@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:systicore_report/src/delivery/persistent_report_queue.dart';
+import 'package:systicore_report/src/delivery/queued_report.dart';
+import 'package:systicore_report/src/delivery/report_dispatcher.dart';
 import 'package:systicore_report/src/storage/memory_reporter_storage.dart';
 import 'package:systicore_report/src/transport/ingest_outcome.dart';
 
@@ -56,6 +58,43 @@ void main() {
       );
       expect(persistedMessages(await readStoredQueue(storage)), isEmpty);
       nextRun.reporter.dispose();
+    });
+
+    test('draining a backlog writes the queue once when the run ends',
+        () async {
+      final storage = CountingStorage();
+      final clock = FakeClock();
+      final queue = PersistentReportQueue(
+        storage: storage,
+        capacity: 50,
+        clock: clock.call,
+      );
+      for (var index = 0; index < 10; index++) {
+        queue.add(
+          QueuedReport(
+            id: 'report-$index',
+            createdAt: clock(),
+            payload: {
+              'error': {'message': 'm$index'},
+            },
+          ),
+        );
+      }
+      await queue.persistPending();
+      final writesBeforeDrain = storage.writes;
+      final dispatcher = ReportDispatcher(
+        queue: queue,
+        transport: RecordingTransport(),
+        bearerTokenFor: (_) async => null,
+        clock: clock.call,
+        createTimer: ManualTimers().call,
+      );
+
+      await dispatcher.drain();
+      await pumpEventQueue();
+
+      expect(storage.writes - writesBeforeDrain, 1);
+      expect(persistedMessages(await readStoredQueue(storage)), isEmpty);
     });
 
     test('the install id is kept across restarts', () async {

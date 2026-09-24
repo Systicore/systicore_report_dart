@@ -179,8 +179,14 @@ code and the message:
 | 5xx, 408, network      | Kept. Retried with exponential backoff: 5 s doubling to 5 min, ±20 % jitter. |
 
 - **Queue.** At most `maxQueue` (default 50) reports wait for delivery. The
-  oldest one is dropped first. The queue is written after every change and
-  replayed on `init`. Reports older than 72 hours are dropped unsent.
+  oldest one is dropped first. The queue is replayed on `init`. Reports
+  older than 72 hours are dropped unsent.
+- **Writing the queue.** A new report is written right away, so a crash
+  cannot lose it. Delivered reports are removed from the file at most every
+  2 s, when a delivery run ends, and on `flush()`: after a crash in between,
+  a report may be sent twice, but never lost. Each report is encoded to
+  JSON once, when it is queued, so a write only joins cached strings and
+  does not re-encode the whole queue on the UI isolate.
 - **Client-side throttling.** The same error (type/code, message with
   digits collapsed, action and first stack frame) is sent at most once per
   60 s. At most 30 reports per minute are accepted.

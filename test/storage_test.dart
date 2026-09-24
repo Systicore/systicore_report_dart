@@ -9,6 +9,8 @@ import 'package:systicore_report/src/storage/file_reporter_storage.dart';
 import 'package:systicore_report/src/storage/memory_reporter_storage.dart';
 import 'package:systicore_report/src/support/uuid.dart';
 
+import 'support/fakes.dart';
+
 QueuedReport queuedReport(String id) => QueuedReport(
       id: id,
       createdAt: DateTime.utc(2026, 9, 24),
@@ -26,12 +28,63 @@ void main() {
         ..add(queuedReport('b'))
         ..add(queuedReport('c'))
         ..remove('b');
-      await queue.persisted;
+      await queue.persistPending();
 
       final restored = PersistentReportQueue(storage: storage, capacity: 50);
       await restored.load();
 
       expect(restored.reports.map((report) => report.id), ['a', 'c']);
+    });
+
+    test('stores the same document jsonEncode would produce', () async {
+      final storage = MemoryReporterStorage();
+      final queue = PersistentReportQueue(storage: storage, capacity: 50)
+        ..add(queuedReport('a'))
+        ..add(queuedReport('b'));
+      await queue.persistPending();
+
+      final stored = await storage.read(PersistentReportQueue.storageKey);
+      expect(jsonDecode(stored!), {
+        'version': 1,
+        'reports': [queuedReport('a').toJson(), queuedReport('b').toJson()],
+      });
+    });
+
+    test('writes a new report right away and removals at most every 2 s',
+        () async {
+      final storage = CountingStorage();
+      final clock = FakeClock();
+      final queue = PersistentReportQueue(
+        storage: storage,
+        capacity: 50,
+        clock: clock.call,
+      )
+        ..add(queuedReport('a'))
+        ..add(queuedReport('b'))
+        ..add(queuedReport('c'));
+      await pumpEventQueue();
+      expect(storage.writes, 1);
+
+      queue
+        ..remove('a')
+        ..remove('b');
+      await pumpEventQueue();
+      expect(storage.writes, 1);
+
+      await queue.persistPending();
+      expect(storage.writes, 2);
+      final afterBatch = PersistentReportQueue(storage: storage, capacity: 50);
+      await afterBatch.load();
+      expect(afterBatch.reports.map((report) => report.id), ['c']);
+
+      clock.advance(const Duration(seconds: 2));
+      queue.remove('c');
+      await pumpEventQueue();
+      expect(storage.writes, 3);
+
+      queue.add(queuedReport('d'));
+      await pumpEventQueue();
+      expect(storage.writes, 4);
     });
 
     test('drops the oldest entries beyond its capacity', () async {

@@ -239,7 +239,7 @@ class SysticoreReporter {
     try {
       await _initialisation;
       await _dispatcher?.drain();
-      await _queue?.persisted;
+      await _queue?.persistPending();
     } catch (error, stackTrace) {
       _logInternalFailure(error, stackTrace);
     }
@@ -251,6 +251,7 @@ class SysticoreReporter {
     _phase = _Phase.disabled;
     _dispatcher?.dispose();
     _dispatcher = null;
+    unawaited(_queue?.persistPending());
   }
 
   Future<void> _initialise(ReporterConfig config) async {
@@ -285,6 +286,7 @@ class SysticoreReporter {
     final queue = PersistentReportQueue(
       storage: storage,
       capacity: config.effectiveMaxQueue,
+      clock: _clock,
     );
     await queue.load();
     if (_phase == _Phase.disabled) return;

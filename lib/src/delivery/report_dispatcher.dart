@@ -18,7 +18,8 @@ typedef BearerTokenLookup = Future<String?> Function(QueuedReport report);
 /// (and a 401/403 also opens the [CircuitBreaker]); a 429 pauses for its
 /// Retry-After; a transient failure pauses with exponential backoff. While
 /// paused, a timer wakes the dispatcher up; new reports only wait in the
-/// queue.
+/// queue. When a run ends, the removals the queue has not written yet are
+/// written.
 class ReportDispatcher {
   ReportDispatcher({
     required PersistentReportQueue queue,
@@ -80,6 +81,7 @@ class ReportDispatcher {
       );
     } finally {
       _isDraining = false;
+      unawaited(_queue.persistPending());
       completed.complete();
     }
   }
