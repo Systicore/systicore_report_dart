@@ -258,9 +258,7 @@ class SysticoreReporter {
     _config = config;
     final baseUri = config.baseUri;
     if (!config.isActive || baseUri == null) {
-      if (config.isActive) {
-        ReporterLog.debug('REPORTS_URL is not a valid URL; reporting is off');
-      }
+      _logWhyInactive(config, baseUri);
       _disable();
       return;
     }
@@ -320,6 +318,24 @@ class SysticoreReporter {
 
   static IngestTransport _dioTransport(Uri baseUri, String ingestKey) =>
       DioIngestTransport(baseUri: baseUri, ingestKey: ingestKey);
+
+  /// Explains a configuration that was switched on but cannot report. Only
+  /// the key's kind is named, never the key itself.
+  static void _logWhyInactive(ReporterConfig config, Uri? baseUri) {
+    if (!config.enabled) return;
+    if (config.hasSecretKey) {
+      ReporterLog.debug(
+        'REPORTS_KEY is a secret scsk_ key, which must never ship in an app; '
+        'reporting is off',
+      );
+    } else if (config.ingestKey.trim().isNotEmpty && !config.hasPublicKey) {
+      ReporterLog.debug(
+        'REPORTS_KEY is not a public scpk_ key; reporting is off',
+      );
+    } else if (config.isActive && baseUri == null) {
+      ReporterLog.debug('REPORTS_URL is not a valid URL; reporting is off');
+    }
+  }
 
   void _disable() {
     _phase = _Phase.disabled;

@@ -22,6 +22,9 @@ void main() {
     final disabledConfigurations = {
       'REPORTS_ENABLED=false': testConfig(enabled: false),
       'empty REPORTS_KEY': testConfig(ingestKey: '  '),
+      'secret scsk_ REPORTS_KEY': testConfig(ingestKey: testSecretIngestKey),
+      'REPORTS_KEY without the scpk_ prefix':
+          testConfig(ingestKey: 'test_$testKeyRandomPart'),
       'empty REPORTS_URL': testConfig(baseUrl: ''),
       'unparseable REPORTS_URL': testConfig(baseUrl: 'not a url'),
     };

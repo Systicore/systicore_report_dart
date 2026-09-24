@@ -13,7 +13,7 @@ void main() {
     server = FakeHttpAdapter(const FakeHttpAnswer.status(202));
     transport = DioIngestTransport(
       baseUri: Uri.parse('https://reports.example.test/base'),
-      ingestKey: 'pk_test_key',
+      ingestKey: 'scpk_test_key',
       dio: Dio()..httpClientAdapter = server,
     );
   });
@@ -30,7 +30,7 @@ void main() {
       request.options.uri.toString(),
       'https://reports.example.test/base/api/v1/ingest',
     );
-    expect(request.options.headers['X-Systicore-Key'], 'pk_test_key');
+    expect(request.options.headers['X-Systicore-Key'], 'scpk_test_key');
     expect(request.options.headers.containsKey('Authorization'), isFalse);
     expect(request.json, {
       'error': {'code': 'X'},

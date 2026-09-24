@@ -6,7 +6,9 @@ import 'package:systicore_report/systicore_report.dart';
 import 'fakes.dart';
 
 const String testBaseUrl = 'https://reports.example.test';
-const String testIngestKey = 'pk_test_0123456789abcdefghijklmnopqrstuv';
+const String testKeyRandomPart = '0123456789abcdefghijklmnopqrstuv';
+const String testIngestKey = 'scpk_test_$testKeyRandomPart';
+const String testSecretIngestKey = 'scsk_test_$testKeyRandomPart';
 
 ReporterConfig testConfig({
   bool enabled = true,

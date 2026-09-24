@@ -28,8 +28,9 @@ class ReleaseInfo {
 
 /// Configuration passed to `SysticoreReporter.init`.
 ///
-/// Reporting is a no-op unless [enabled] is true and both [baseUrl] and
-/// [ingestKey] are non-empty.
+/// Reporting is a no-op unless [enabled] is true, [baseUrl] is non-empty and
+/// [ingestKey] is a public `scpk_` key. A secret `scsk_` key is refused: it
+/// belongs to a backend and must never ship inside an app.
 @immutable
 class ReporterConfig {
   const ReporterConfig({
@@ -76,6 +77,12 @@ class ReporterConfig {
 
   static const int defaultMaxQueue = 50;
 
+  /// Prefix of the public ingest keys an app may carry (contract v1.1).
+  static const String publicKeyPrefix = 'scpk_';
+
+  /// Prefix of the secret ingest keys reserved for backends (contract v1.1).
+  static const String secretKeyPrefix = 'scsk_';
+
   static const bool _enabledDefine = bool.fromEnvironment('REPORTS_ENABLED');
   static const String _urlDefine = String.fromEnvironment('REPORTS_URL');
   static const String _keyDefine = String.fromEnvironment('REPORTS_KEY');
@@ -91,7 +98,7 @@ class ReporterConfig {
   /// `https://reports.systicore.hu`.
   final String baseUrl;
 
-  /// Public `pk_` ingest key of this component (`REPORTS_KEY`).
+  /// Public `scpk_` ingest key of this component (`REPORTS_KEY`).
   final String ingestKey;
 
   /// Component name such as `passguard_mobile`. The backend derives the
@@ -114,9 +121,17 @@ class ReporterConfig {
   /// when a new one would exceed it.
   final int maxQueue;
 
-  /// Whether this configuration actually sends anything.
-  bool get isActive =>
-      enabled && baseUrl.trim().isNotEmpty && ingestKey.trim().isNotEmpty;
+  /// Whether [ingestKey] is a public `scpk_` key.
+  bool get hasPublicKey => ingestKey.trim().startsWith(publicKeyPrefix);
+
+  /// Whether [ingestKey] is a secret `scsk_` key, which an app must never
+  /// carry: anyone can extract it from the build.
+  bool get hasSecretKey => ingestKey.trim().startsWith(secretKeyPrefix);
+
+  /// Whether this configuration actually sends anything. Only a public
+  /// `scpk_` key is accepted; any other key, a secret `scsk_` key above all,
+  /// turns reporting off.
+  bool get isActive => enabled && baseUrl.trim().isNotEmpty && hasPublicKey;
 
   /// [maxQueue] clamped to a sane range.
   int get effectiveMaxQueue => maxQueue.clamp(1, 500);

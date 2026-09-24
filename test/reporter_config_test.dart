@@ -6,7 +6,7 @@ import 'package:systicore_report/src/context/platform_name.dart';
 ReporterConfig config({
   bool enabled = true,
   String baseUrl = 'https://reports.example.test',
-  String ingestKey = 'pk_test_key',
+  String ingestKey = 'scpk_test_key',
   int maxQueue = ReporterConfig.defaultMaxQueue,
 }) {
   return ReporterConfig(
@@ -26,6 +26,23 @@ void main() {
       expect(config(enabled: false).isActive, isFalse);
       expect(config(baseUrl: ' ').isActive, isFalse);
       expect(config(ingestKey: '').isActive, isFalse);
+    });
+
+    test('accepts only a public scpk_ key and refuses a secret scsk_ key', () {
+      final publicKey = config(ingestKey: ' scpk_live_key ');
+      expect(publicKey.hasPublicKey, isTrue);
+      expect(publicKey.hasSecretKey, isFalse);
+      expect(publicKey.isActive, isTrue);
+
+      final secretKey = config(ingestKey: 'scsk_live_key');
+      expect(secretKey.hasPublicKey, isFalse);
+      expect(secretKey.hasSecretKey, isTrue);
+      expect(secretKey.isActive, isFalse);
+
+      for (final unknownKey in ['pk_live_key', 'live_key', 'SCPK_live_key']) {
+        expect(config(ingestKey: unknownKey).isActive, isFalse,
+            reason: unknownKey);
+      }
     });
 
     test('baseUri drops trailing slashes and rejects non-URLs', () {
