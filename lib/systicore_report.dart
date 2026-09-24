@@ -10,6 +10,7 @@ library;
 
 export 'src/config/reporter_config.dart'
     show AccessTokenProvider, ReleaseInfo, ReporterConfig, UserIdProvider;
+export 'src/dio/reporting_interceptor.dart' show ReportingInterceptor;
 export 'src/model/breadcrumb.dart' show BreadcrumbCategory;
 export 'src/model/report_severity.dart' show ReportSeverity;
 export 'src/systicore_reporter.dart' show SysticoreReporter;
