@@ -67,6 +67,18 @@ void main() {
       expect(fromDefines.environment, 'development');
       expect(fromDefines.release.commit, isNull);
       expect(fromDefines.maxQueue, 50);
+      expect(fromDefines.userIssuer, isNull);
+    });
+
+    test('fromDartDefines passes the user issuer through', () {
+      final fromDefines = ReporterConfig.fromDartDefines(
+        source: 'example_mobile',
+        userIdProvider: () => '42',
+        userIssuer: 'https://auth.systicore.hu',
+      );
+
+      expect(fromDefines.userIssuer, 'https://auth.systicore.hu');
+      expect(fromDefines.userIdProvider!(), '42');
     });
   });
 

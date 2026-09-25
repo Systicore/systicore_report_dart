@@ -6,6 +6,7 @@ import 'capture/captured_error.dart';
 import 'capture/error_type_namer.dart';
 import 'capture/payload_builder.dart';
 import 'capture/report_envelope.dart';
+import 'capture/reported_errors.dart';
 import 'config/reporter_config.dart';
 import 'context/device_context_loader.dart';
 import 'context/install_id_repository.dart';
@@ -34,7 +35,8 @@ typedef IngestTransportFactory = IngestTransport Function(
 );
 
 /// Replaceable collaborators of [SysticoreReporter]; a null field means the
-/// production default.
+/// production default. Exported for tests by
+/// `package:systicore_report/testing.dart`.
 @immutable
 class ReporterDependencies {
   const ReporterDependencies({
@@ -47,12 +49,29 @@ class ReporterDependencies {
     this.errorTypeNamer,
   });
 
+  /// Holds the queue and the install id; default: a file in the app's
+  /// support directory (localStorage on the web).
   final ReporterStorage? storage;
+
+  /// Creates the transport once `init` knows the URL and key; default:
+  /// Dio posting to `/api/v1/ingest`.
   final IngestTransportFactory? transportFactory;
+
+  /// Describes the device; default: device_info_plus and
+  /// package_info_plus.
   final DeviceContextLoader? deviceContextLoader;
+
+  /// Time source for throttling, backoff and breadcrumbs.
   final Clock? clock;
+
+  /// Timers that wake the delivery up after backoff or `Retry-After`.
   final TimerFactory? createTimer;
+
+  /// Receives the uncaught-error handler that
+  /// [SysticoreReporter.installHandlers] chains in.
   final PlatformDispatcher? platformDispatcher;
+
+  /// Names error classes for `error.type`.
   final ErrorTypeNamer? errorTypeNamer;
 }
 
@@ -69,6 +88,8 @@ enum _Phase { awaitingInit, initialising, active, disabled }
 class SysticoreReporter {
   SysticoreReporter() : this.withDependencies(const ReporterDependencies());
 
+  /// A reporter on replaced collaborators, for tests; see
+  /// `package:systicore_report/testing.dart`.
   @visibleForTesting
   SysticoreReporter.withDependencies(ReporterDependencies dependencies)
       : _dependencies = dependencies,
@@ -76,6 +97,8 @@ class SysticoreReporter {
         _duplicateFilter =
             DuplicateFilter(clock: dependencies.clock ?? systemClock),
         _rateLimiter = RateLimiter(clock: dependencies.clock ?? systemClock),
+        _reportedErrors =
+            ReportedErrors(clock: dependencies.clock ?? systemClock),
         _errorTypeNamer = dependencies.errorTypeNamer ?? ErrorTypeNamer();
 
   /// The app-wide reporter.
@@ -89,6 +112,7 @@ class SysticoreReporter {
   final Clock _clock;
   final DuplicateFilter _duplicateFilter;
   final RateLimiter _rateLimiter;
+  final ReportedErrors _reportedErrors;
   final ErrorTypeNamer _errorTypeNamer;
   final BreadcrumbTrail _breadcrumbs = BreadcrumbTrail();
   final List<CapturedError> _capturedBeforeInit = [];
@@ -146,6 +170,12 @@ class SysticoreReporter {
   /// Reports a caught exception. Returns true when the reporter took it
   /// over (queued, or a duplicate of one queued within the last minute).
   ///
+  /// Once taken, [error] counts as reported: when the app rethrows it or
+  /// lets it escape, the global handlers ([installHandlers], [runGuarded])
+  /// do not report it again. An explicit call is always judged on its own,
+  /// also for an error reported before (e.g. by `ReportingInterceptor`),
+  /// so a report under another [code] or [action] is sent.
+  ///
   /// The class name is sent as `type`, except in minified (web release) and
   /// obfuscated builds, whose class names change with every build. There,
   /// pass a stable [code] so the backend keeps grouping the error.
@@ -158,6 +188,7 @@ class SysticoreReporter {
     String? code,
   }) {
     return _captureError(
+      thrown: error,
       type: _errorTypeNamer.nameOf(error),
       code: code,
       message: _describe(error),
@@ -168,8 +199,36 @@ class SysticoreReporter {
     );
   }
 
+  /// Marks [error] as reported, so for the next minute the global handlers
+  /// ([installHandlers], [runGuarded]) do not report it again when the app
+  /// rethrows it or lets it escape uncaught. An explicit [captureException]
+  /// of it is still sent.
+  ///
+  /// `ReportingInterceptor` marks the `DioException`s it reports. Call this
+  /// after reporting an error some other way, for example with [report].
+  /// Strings, numbers, booleans and records cannot be marked.
+  void markReported(Object error) {
+    try {
+      _reportedErrors.remember(error);
+    } catch (internalError, stackTrace) {
+      _logInternalFailure(internalError, stackTrace);
+    }
+  }
+
+  /// Whether [error] was reported, or marked with [markReported], within
+  /// the last minute.
+  bool isReported(Object error) {
+    try {
+      return _reportedErrors.contains(error);
+    } catch (internalError, stackTrace) {
+      _logInternalFailure(internalError, stackTrace);
+      return false;
+    }
+  }
+
   /// Sets the user attached to later reports; null clears it. An explicit
-  /// user wins over [ReporterConfig.userIdProvider].
+  /// user wins over [ReporterConfig.userIdProvider]. Without an [issuer],
+  /// [ReporterConfig.userIssuer] is sent.
   void setUser(String? id, {String? issuer}) {
     final trimmed = id?.trim() ?? '';
     _explicitUser =
@@ -218,10 +277,21 @@ class SysticoreReporter {
   /// Runs [appMain] inside `runZonedGuarded` and reports what escapes it.
   /// Put `WidgetsFlutterBinding.ensureInitialized()`, [init] and `runApp`
   /// inside [appMain] so they share the zone.
-  Future<void> runGuarded(FutureOr<void> Function() appMain) {
+  ///
+  /// [zoneSpecification] and [zoneValues] are passed on to
+  /// `runZonedGuarded`, for example a `print` handler that mirrors log lines
+  /// into the app's own log viewer. As with `runZonedGuarded` itself, the
+  /// specification's `handleUncaughtError` is replaced by the reporter's.
+  Future<void> runGuarded(
+    FutureOr<void> Function() appMain, {
+    ZoneSpecification? zoneSpecification,
+    Map<Object?, Object?>? zoneValues,
+  }) {
     return runInGuardedZone(
       appMain,
       captureUncaughtError: _captureUncaughtError,
+      zoneSpecification: zoneSpecification,
+      zoneValues: zoneValues,
     );
   }
 
@@ -346,7 +416,9 @@ class SysticoreReporter {
   bool _captureFlutterError(FlutterErrorDetails details) {
     // Silent errors (e.g. a failed network image) are expected noise.
     if (details.silent) return false;
+    if (_isAlreadyReported(details.exception)) return true;
     return _captureError(
+      thrown: details.exception,
       type: _errorTypeNamer.nameOf(details.exception),
       code: _flutterErrorCode,
       message: _describeFlutterError(details),
@@ -356,7 +428,9 @@ class SysticoreReporter {
   }
 
   bool _captureUncaughtError(Object error, StackTrace stackTrace) {
+    if (_isAlreadyReported(error)) return true;
     return _captureError(
+      thrown: error,
       type: _errorTypeNamer.nameOf(error),
       code: _uncaughtErrorCode,
       message: _describe(error),
@@ -365,7 +439,17 @@ class SysticoreReporter {
     );
   }
 
+  // An error that reaches a global handler after it was reported (rethrown,
+  // or escaping uncaught) counts as taken over without a second report.
+  // Only the global handlers skip it; explicit calls are judged on their
+  // own. With reporting disabled nothing is taken over.
+  bool _isAlreadyReported(Object error) =>
+      _phase != _Phase.disabled && isReported(error);
+
+  // [thrown] is the error object behind the report, if there is one. Once
+  // the report is taken, it is remembered for [_isAlreadyReported].
   bool _captureError({
+    Object? thrown,
     String? type,
     String? code,
     String? message,
@@ -377,7 +461,7 @@ class SysticoreReporter {
   }) {
     if (_phase == _Phase.disabled) return false;
     try {
-      return _accept(
+      final taken = _accept(
         CapturedError(
           capturedAt: _clock(),
           type: type,
@@ -393,6 +477,8 @@ class SysticoreReporter {
           requestId: requestId,
         ),
       );
+      if (taken && thrown != null) _reportedErrors.remember(thrown);
+      return taken;
     } catch (error, stackTrace) {
       _logInternalFailure(error, stackTrace);
       return false;

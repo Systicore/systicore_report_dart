@@ -173,6 +173,40 @@ void main() {
       );
     });
 
+    test('passes zoneSpecification and zoneValues to the guarded zone',
+        () async {
+      final harness = ReporterHarness();
+      await harness.start();
+      final printedLines = <String>[];
+      final asyncErrorRaised = Completer<void>();
+      Object? zoneValue;
+
+      await harness.reporter.runGuarded(
+        () {
+          zoneValue = Zone.current[#logViewer];
+          Zone.current.print('app started');
+          scheduleMicrotask(() {
+            asyncErrorRaised.complete();
+            throw StateError('still reported');
+          });
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => printedLines.add(line),
+        ),
+        zoneValues: {#logViewer: 'spike'},
+      );
+      await asyncErrorRaised.future;
+      await pumpEventQueue();
+      await harness.reporter.flush();
+
+      expect(printedLines, ['app started']);
+      expect(zoneValue, 'spike');
+      expect(
+        harness.transport.sent.single.error['message'],
+        'Bad state: still reported',
+      );
+    });
+
     test('with reporting disabled the error goes to the surrounding zone',
         () async {
       final harness = ReporterHarness();

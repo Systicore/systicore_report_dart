@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:systicore_report/src/transport/ingest_outcome.dart';
+import 'package:systicore_report/testing.dart';
 
-import 'support/fakes.dart';
 import 'support/reporter_harness.dart';
 
 void main() {
@@ -10,7 +9,7 @@ void main() {
       test('HTTP $statusCode drops the report and pauses sending for 5 minutes',
           () async {
         final harness = ReporterHarness(
-          transport: RecordingTransport([IngestRejected(statusCode)]),
+          transport: RecordingIngestTransport([IngestRejected(statusCode)]),
         );
         await harness.start();
         final reporter = harness.reporter;
@@ -42,7 +41,7 @@ void main() {
     for (final statusCode in [400, 413]) {
       test('HTTP $statusCode drops the report without pausing', () async {
         final harness = ReporterHarness(
-          transport: RecordingTransport([IngestRejected(statusCode)]),
+          transport: RecordingIngestTransport([IngestRejected(statusCode)]),
         );
         await harness.start();
 
@@ -63,7 +62,7 @@ void main() {
   group('429 Retry-After', () {
     test('nothing is sent before Retry-After has passed', () async {
       final harness = ReporterHarness(
-        transport: RecordingTransport(
+        transport: RecordingIngestTransport(
           [const IngestRateLimited(Duration(seconds: 120))],
         ),
       );
@@ -92,7 +91,7 @@ void main() {
   group('transient failures', () {
     test('5xx and network errors keep the report and back off', () async {
       final harness = ReporterHarness(
-        transport: RecordingTransport([
+        transport: RecordingIngestTransport([
           const IngestTransientFailure('HTTP 503'),
           const IngestTransientFailure('connectionError'),
         ]),
@@ -137,7 +136,7 @@ void main() {
   });
 }
 
-class _ThrowingOnceTransport extends RecordingTransport {
+class _ThrowingOnceTransport extends RecordingIngestTransport {
   bool _thrown = false;
 
   @override

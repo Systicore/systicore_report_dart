@@ -6,6 +6,9 @@ import '../systicore_reporter.dart';
 import 'http_failure.dart';
 import 'request_path_template.dart';
 
+/// How an outcome was handled when [ReportingInterceptor] first saw it.
+enum _Observation { recorded, reported }
+
 /// Dio interceptor that reports server errors (status >= 500) and
 /// connection/timeout failures, and records every call as an `http`
 /// breadcrumb.
@@ -14,6 +17,17 @@ import 'request_path_template.dart';
 /// unchanged, and a failure inside the reporter can never affect the
 /// request. Requests to the reports backend itself are ignored. Add it last
 /// so it sees the outcome after the app's own retry interceptors.
+///
+/// A `DioException` it reports is marked with
+/// [SysticoreReporter.markReported]: when the app lets it escape uncaught,
+/// the global handlers do not report it a second time.
+///
+/// Each outcome is observed once. A request retried with `dio.fetch`
+/// inside an interceptor (a 401 refresh retry) passes the whole chain
+/// again, and its outcome then travels on through the outer chain: the
+/// same `DioException` or `Response`, or a copy of the exception that keeps
+/// its response. It is recorded and reported only the first time, and a
+/// copy of a reported failure is marked as reported as well.
 class ReportingInterceptor extends Interceptor {
   ReportingInterceptor({
     SysticoreReporter? reporter,
@@ -26,6 +40,10 @@ class ReportingInterceptor extends Interceptor {
   final bool recordBreadcrumbs;
 
   static const String _requestIdHeader = 'x-request-id';
+
+  // Shared by every instance: the retry may run on another Dio.
+  static final Expando<_Observation> _observations =
+      Expando<_Observation>('systicore_report.observed');
 
   @override
   void onResponse(
@@ -47,25 +65,46 @@ class ReportingInterceptor extends Interceptor {
   void _observeResponse(Response<dynamic> response) {
     final request = response.requestOptions;
     if (_reporter.isReportsEndpoint(request.uri)) return;
+    if (_observations[response] != null) return;
     final statusCode = response.statusCode;
     _recordBreadcrumb(request, '${statusCode ?? '-'}');
     final failure = HttpFailureKind.fromStatusCode(statusCode);
-    if (failure == null) return;
-    _report(
-      request,
-      failure,
-      statusCode: statusCode,
-      requestId: response.headers.value(_requestIdHeader),
-    );
+    if (failure != null) {
+      _report(
+        request,
+        failure,
+        statusCode: statusCode,
+        requestId: response.headers.value(_requestIdHeader),
+      );
+    }
+    _observations[response] =
+        failure == null ? _Observation.recorded : _Observation.reported;
   }
 
   void _observeFailure(DioException exception) {
     final request = exception.requestOptions;
     if (_reporter.isReportsEndpoint(request.uri)) return;
+    final response = exception.response;
+    final earlierObservation = _observations[exception] ??
+        (response == null ? null : _observations[response]);
+    if (earlierObservation != null) {
+      // A copy of a reported failure must not escape as a new error.
+      if (earlierObservation == _Observation.reported) {
+        _reporter.markReported(exception);
+      }
+      return;
+    }
+    final observation = _recordAndReportFailure(exception);
+    _observations[exception] = observation;
+    if (response != null) _observations[response] = observation;
+  }
+
+  _Observation _recordAndReportFailure(DioException exception) {
+    final request = exception.requestOptions;
     final statusCode = exception.response?.statusCode;
     _recordBreadcrumb(request, '${statusCode ?? exception.type.name}');
     final failure = HttpFailureKind.of(exception);
-    if (failure == null) return;
+    if (failure == null) return _Observation.recorded;
     _report(
       request,
       failure,
@@ -74,6 +113,8 @@ class ReportingInterceptor extends Interceptor {
       detail: exception.type.name,
       trace: exception.stackTrace.toString(),
     );
+    _reporter.markReported(exception);
+    return _Observation.reported;
   }
 
   void _report(

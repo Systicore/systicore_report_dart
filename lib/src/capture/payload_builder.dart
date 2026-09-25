@@ -14,13 +14,14 @@ class PayloadBuilder {
   Map<String, Object?> build(CapturedError captured) {
     final context = _contextOf(captured);
     final environment = _envelope.environment.trim();
+    final user = captured.user?.withFallbackIssuer(_envelope.userIssuer);
     return {
       'error': _errorOf(captured),
       'release': _releaseOf(_envelope.release),
       if (environment.isNotEmpty) 'environment': environment,
       if (_envelope.platform != null) 'platform': _envelope.platform,
       'device': _envelope.device.toJson(),
-      if (captured.user != null) 'user': captured.user!.toJson(),
+      if (user != null) 'user': user.toJson(),
       if (context.isNotEmpty) 'context': context,
     };
   }

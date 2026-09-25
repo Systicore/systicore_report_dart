@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:systicore_report/src/dio/request_path_template.dart';
@@ -5,6 +7,35 @@ import 'package:systicore_report/systicore_report.dart';
 
 import 'support/fakes.dart';
 import 'support/reporter_harness.dart';
+
+/// An app's token refresh: on a 401 it retries the request once on the
+/// same Dio and passes the retry's outcome on through the outer chain.
+class _RetryOnUnauthorized extends Interceptor {
+  _RetryOnUnauthorized(this.dio, {this.copyRetryFailure = false});
+
+  final Dio dio;
+
+  /// Passes on a copy of the retry's DioException instead of the original.
+  final bool copyRetryFailure;
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    if (err.response?.statusCode != 401) return handler.next(err);
+    try {
+      final response = await dio.fetch<dynamic>(err.requestOptions);
+      handler.resolve(response);
+    } on DioException catch (retryFailure) {
+      handler.next(
+        copyRetryFailure
+            ? retryFailure.copyWith(message: 'retry failed')
+            : retryFailure,
+      );
+    }
+  }
+}
 
 void main() {
   group('ReportingInterceptor', () {
@@ -104,6 +135,67 @@ void main() {
       );
     });
 
+    test('reports network failures that dio wraps as unknown', () async {
+      final networkFailures = <String, Object>{
+        '/api/reset': const SocketException('Connection reset by peer'),
+        '/api/headers': const HttpException(
+          'Connection closed before full header was received',
+        ),
+        '/api/tls': const HandshakeException('Handshake error in client'),
+      };
+      final exceptions = <DioException>[];
+      for (final entry in networkFailures.entries) {
+        appBackend.answerNext(FakeHttpAnswer.thrown(entry.value));
+        exceptions.add(await failingGet(entry.key));
+      }
+      await harness.reporter.flush();
+
+      for (final exception in exceptions) {
+        expect(exception.type, DioExceptionType.unknown);
+        expect(harness.reporter.isReported(exception), isTrue);
+      }
+      expect(
+        exceptions.map((exception) => exception.error),
+        networkFailures.values,
+      );
+      // The same code and message as a connectionError of the endpoint.
+      expect(sentErrors().map((error) => error['message']), [
+        'Connection error on GET /api/reset',
+        'Connection error on GET /api/headers',
+        'Connection error on GET /api/tls',
+      ]);
+      for (final error in sentErrors()) {
+        expect(error['code'], 'HTTP_CONNECTION_ERROR');
+        expect(error['severity'], 'warning');
+      }
+    });
+
+    test('ignores unknown failures without a network cause', () async {
+      appBackend
+        ..answerNext(
+          const FakeHttpAnswer.thrown(FormatException('Unexpected character')),
+        )
+        ..answerNext(
+          const FakeHttpAnswer.thrown(FileSystemException('Disk full')),
+        )
+        ..answerNext(
+          const FakeHttpAnswer.thrown(
+            RedirectException('Redirect loop detected', []),
+          ),
+        );
+
+      final decodingFailure = await failingGet('/api/decode');
+      final fileFailure = await failingGet('/api/download');
+      final redirectFailure = await failingGet('/api/moved');
+      await harness.reporter.flush();
+
+      expect(decodingFailure.type, DioExceptionType.unknown);
+      expect(fileFailure.type, DioExceptionType.unknown);
+      expect(redirectFailure.type, DioExceptionType.unknown);
+      expect(redirectFailure.error, isA<RedirectException>());
+      expect(harness.transport.sent, isEmpty);
+    });
+
     test('ignores cancelled requests and bad certificates', () async {
       appBackend
           .answerNext(const FakeHttpAnswer.failure(DioExceptionType.cancel));
@@ -179,6 +271,106 @@ void main() {
 
       expect(response.statusCode, 500);
       expect(disabled.transport.sent, isEmpty);
+    });
+  });
+
+  group('ReportingInterceptor with a retry on the same Dio', () {
+    late ReporterHarness harness;
+    late FakeHttpAdapter appBackend;
+
+    setUp(() async {
+      harness = ReporterHarness();
+      await harness.start();
+      appBackend = FakeHttpAdapter();
+    });
+
+    tearDown(() => harness.reporter.dispose());
+
+    Dio retryingDio({bool copyRetryFailure = false}) {
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend;
+      dio.interceptors
+        ..add(_RetryOnUnauthorized(dio, copyRetryFailure: copyRetryFailure))
+        ..add(ReportingInterceptor(reporter: harness.reporter));
+      return dio;
+    }
+
+    Future<DioException> failingGetOn(Dio dio, String path) async {
+      try {
+        await dio.get<String>(path);
+      } on DioException catch (exception) {
+        return exception;
+      }
+      fail('expected $path to fail');
+    }
+
+    // A later report carries every breadcrumb recorded so far.
+    Future<List<Object?>> breadcrumbMessages() async {
+      harness.reporter.report(code: 'PROBE', message: 'probe', action: 'test');
+      await harness.reporter.flush();
+      final context = harness.transport.sent.last.payload['context']!
+          as Map<String, Object?>;
+      return [
+        for (final breadcrumb in context['breadcrumbs']! as List<Object?>)
+          (breadcrumb! as Map<String, Object?>)['message'],
+      ];
+    }
+
+    for (final copyRetryFailure in [false, true]) {
+      final passedOn = copyRetryFailure ? 'a copy of it' : 'it';
+      test('a failed retry is reported once when the app passes on $passedOn',
+          () async {
+        final dio = retryingDio(copyRetryFailure: copyRetryFailure);
+        appBackend
+          ..answerNext(const FakeHttpAnswer.status(401))
+          ..answerNext(const FakeHttpAnswer.status(503));
+
+        final exception = await failingGetOn(dio, '/api/sync');
+        await harness.reporter.flush();
+
+        expect(appBackend.requests, hasLength(2));
+        if (copyRetryFailure) expect(exception.message, 'retry failed');
+        // What escapes to the app is marked, so the global handlers skip it.
+        expect(harness.reporter.isReported(exception), isTrue);
+        expect(harness.transport.sent.single.error['code'], 'HTTP_503');
+        expect(await breadcrumbMessages(), ['GET /api/sync 503']);
+      });
+    }
+
+    test('a successful retry is recorded once', () async {
+      final dio = retryingDio();
+      appBackend
+        ..answerNext(const FakeHttpAnswer.status(401))
+        ..answerNext(const FakeHttpAnswer.status(200, body: 'ok'));
+
+      final response = await dio.get<String>('/api/sync');
+
+      expect(response.data, 'ok');
+      expect(await breadcrumbMessages(), ['GET /api/sync 200']);
+      expect(harness.transport.sent.single.error['code'], 'PROBE');
+    });
+
+    test('a retry through a second Dio is reported once', () async {
+      final retryDio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend
+        ..interceptors.add(ReportingInterceptor(reporter: harness.reporter));
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend;
+      dio.interceptors
+        ..add(_RetryOnUnauthorized(retryDio))
+        ..add(ReportingInterceptor(reporter: harness.reporter));
+      appBackend
+        ..answerNext(const FakeHttpAnswer.status(401))
+        ..answerNext(const FakeHttpAnswer.status(502));
+
+      await expectLater(
+        dio.get<String>('/api/sync'),
+        throwsA(isA<DioException>()),
+      );
+      await harness.reporter.flush();
+
+      expect(harness.transport.sent.single.error['code'], 'HTTP_502');
+      expect(await breadcrumbMessages(), ['GET /api/sync 502']);
     });
   });
 
