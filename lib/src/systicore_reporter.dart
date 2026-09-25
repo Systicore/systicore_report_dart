@@ -6,6 +6,7 @@ import 'capture/captured_error.dart';
 import 'capture/error_type_namer.dart';
 import 'capture/payload_builder.dart';
 import 'capture/report_envelope.dart';
+import 'capture/reported_errors.dart';
 import 'config/reporter_config.dart';
 import 'context/device_context_loader.dart';
 import 'context/install_id_repository.dart';
@@ -76,6 +77,8 @@ class SysticoreReporter {
         _duplicateFilter =
             DuplicateFilter(clock: dependencies.clock ?? systemClock),
         _rateLimiter = RateLimiter(clock: dependencies.clock ?? systemClock),
+        _reportedErrors =
+            ReportedErrors(clock: dependencies.clock ?? systemClock),
         _errorTypeNamer = dependencies.errorTypeNamer ?? ErrorTypeNamer();
 
   /// The app-wide reporter.
@@ -89,6 +92,7 @@ class SysticoreReporter {
   final Clock _clock;
   final DuplicateFilter _duplicateFilter;
   final RateLimiter _rateLimiter;
+  final ReportedErrors _reportedErrors;
   final ErrorTypeNamer _errorTypeNamer;
   final BreadcrumbTrail _breadcrumbs = BreadcrumbTrail();
   final List<CapturedError> _capturedBeforeInit = [];
@@ -146,6 +150,10 @@ class SysticoreReporter {
   /// Reports a caught exception. Returns true when the reporter took it
   /// over (queued, or a duplicate of one queued within the last minute).
   ///
+  /// An error object is reported once: when [error] was reported within
+  /// the last minute (by an earlier call, by `ReportingInterceptor` or
+  /// through [markReported]), nothing is sent again and true is returned.
+  ///
   /// The class name is sent as `type`, except in minified (web release) and
   /// obfuscated builds, whose class names change with every build. There,
   /// pass a stable [code] so the backend keeps grouping the error.
@@ -158,6 +166,7 @@ class SysticoreReporter {
     String? code,
   }) {
     return _captureError(
+      thrown: error,
       type: _errorTypeNamer.nameOf(error),
       code: code,
       message: _describe(error),
@@ -166,6 +175,33 @@ class SysticoreReporter {
       severity: severity,
       tags: tags,
     );
+  }
+
+  /// Marks [error] as reported, so for the next minute neither
+  /// [captureException] nor the global handlers ([installHandlers],
+  /// [runGuarded]) report it again when the app passes it on or lets it
+  /// escape uncaught.
+  ///
+  /// `ReportingInterceptor` marks the `DioException`s it reports. Call this
+  /// after reporting an error some other way, for example with [report].
+  /// Strings, numbers, booleans and records cannot be marked.
+  void markReported(Object error) {
+    try {
+      _reportedErrors.remember(error);
+    } catch (internalError, stackTrace) {
+      _logInternalFailure(internalError, stackTrace);
+    }
+  }
+
+  /// Whether [error] was reported, or marked with [markReported], within
+  /// the last minute.
+  bool isReported(Object error) {
+    try {
+      return _reportedErrors.contains(error);
+    } catch (internalError, stackTrace) {
+      _logInternalFailure(internalError, stackTrace);
+      return false;
+    }
   }
 
   /// Sets the user attached to later reports; null clears it. An explicit
@@ -347,6 +383,7 @@ class SysticoreReporter {
     // Silent errors (e.g. a failed network image) are expected noise.
     if (details.silent) return false;
     return _captureError(
+      thrown: details.exception,
       type: _errorTypeNamer.nameOf(details.exception),
       code: _flutterErrorCode,
       message: _describeFlutterError(details),
@@ -357,6 +394,7 @@ class SysticoreReporter {
 
   bool _captureUncaughtError(Object error, StackTrace stackTrace) {
     return _captureError(
+      thrown: error,
       type: _errorTypeNamer.nameOf(error),
       code: _uncaughtErrorCode,
       message: _describe(error),
@@ -365,7 +403,11 @@ class SysticoreReporter {
     );
   }
 
+  // [thrown] is the error object behind the report, if there is one. It is
+  // reported once: a rethrown or escaping error that was already reported
+  // counts as taken over without a second report.
   bool _captureError({
+    Object? thrown,
     String? type,
     String? code,
     String? message,
@@ -377,7 +419,8 @@ class SysticoreReporter {
   }) {
     if (_phase == _Phase.disabled) return false;
     try {
-      return _accept(
+      if (thrown != null && _reportedErrors.contains(thrown)) return true;
+      final taken = _accept(
         CapturedError(
           capturedAt: _clock(),
           type: type,
@@ -393,6 +436,8 @@ class SysticoreReporter {
           requestId: requestId,
         ),
       );
+      if (taken && thrown != null) _reportedErrors.remember(thrown);
+      return taken;
     } catch (error, stackTrace) {
       _logInternalFailure(error, stackTrace);
       return false;

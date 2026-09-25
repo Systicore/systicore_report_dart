@@ -14,6 +14,10 @@ import 'request_path_template.dart';
 /// unchanged, and a failure inside the reporter can never affect the
 /// request. Requests to the reports backend itself are ignored. Add it last
 /// so it sees the outcome after the app's own retry interceptors.
+///
+/// A `DioException` it reports is marked with
+/// [SysticoreReporter.markReported]: when the app lets it escape uncaught,
+/// the global handlers do not report it a second time.
 class ReportingInterceptor extends Interceptor {
   ReportingInterceptor({
     SysticoreReporter? reporter,
@@ -74,6 +78,7 @@ class ReportingInterceptor extends Interceptor {
       detail: exception.type.name,
       trace: exception.stackTrace.toString(),
     );
+    _reporter.markReported(exception);
   }
 
   void _report(
