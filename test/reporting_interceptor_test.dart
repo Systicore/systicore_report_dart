@@ -287,6 +287,15 @@ void main() {
       return dio;
     }
 
+    Future<DioException> failingGetOn(Dio dio, String path) async {
+      try {
+        await dio.get<String>(path);
+      } on DioException catch (exception) {
+        return exception;
+      }
+      fail('expected $path to fail');
+    }
+
     // A later report carries every breadcrumb recorded so far.
     Future<List<Object?>> breadcrumbMessages() async {
       harness.reporter.report(code: 'PROBE', message: 'probe', action: 'test');
@@ -308,13 +317,13 @@ void main() {
           ..answerNext(const FakeHttpAnswer.status(401))
           ..answerNext(const FakeHttpAnswer.status(503));
 
-        await expectLater(
-          dio.get<String>('/api/sync'),
-          throwsA(isA<DioException>()),
-        );
+        final exception = await failingGetOn(dio, '/api/sync');
         await harness.reporter.flush();
 
         expect(appBackend.requests, hasLength(2));
+        if (copyRetryFailure) expect(exception.message, 'retry failed');
+        // What escapes to the app is marked, so the global handlers skip it.
+        expect(harness.reporter.isReported(exception), isTrue);
         expect(harness.transport.sent.single.error['code'], 'HTTP_503');
         expect(await breadcrumbMessages(), ['GET /api/sync 503']);
       });
