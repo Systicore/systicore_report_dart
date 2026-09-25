@@ -255,10 +255,21 @@ class SysticoreReporter {
   /// Runs [appMain] inside `runZonedGuarded` and reports what escapes it.
   /// Put `WidgetsFlutterBinding.ensureInitialized()`, [init] and `runApp`
   /// inside [appMain] so they share the zone.
-  Future<void> runGuarded(FutureOr<void> Function() appMain) {
+  ///
+  /// [zoneSpecification] and [zoneValues] are passed on to
+  /// `runZonedGuarded`, for example a `print` handler that mirrors log lines
+  /// into the app's own log viewer. As with `runZonedGuarded` itself, the
+  /// specification's `handleUncaughtError` is replaced by the reporter's.
+  Future<void> runGuarded(
+    FutureOr<void> Function() appMain, {
+    ZoneSpecification? zoneSpecification,
+    Map<Object?, Object?>? zoneValues,
+  }) {
     return runInGuardedZone(
       appMain,
       captureUncaughtError: _captureUncaughtError,
+      zoneSpecification: zoneSpecification,
+      zoneValues: zoneValues,
     );
   }
 

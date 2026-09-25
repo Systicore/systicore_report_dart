@@ -69,10 +69,13 @@ class UncaughtErrorHandlers {
 /// same zone as `runApp`. An error the reporter does not take over (for
 /// example while reporting is disabled) is passed on to the surrounding
 /// zone instead of being swallowed. The returned future completes when
-/// [appMain] has returned or thrown.
+/// [appMain] has returned or thrown. [zoneSpecification] and [zoneValues]
+/// configure the zone as in `runZonedGuarded`.
 Future<void> runInGuardedZone(
   FutureOr<void> Function() appMain, {
   required UncaughtErrorCapture captureUncaughtError,
+  ZoneSpecification? zoneSpecification,
+  Map<Object?, Object?>? zoneValues,
 }) {
   final outerZone = Zone.current;
   final finished = Completer<void>();
@@ -96,6 +99,8 @@ Future<void> runInGuardedZone(
         }
         outerZone.handleUncaughtError(error, stackTrace);
       },
+      zoneSpecification: zoneSpecification,
+      zoneValues: zoneValues,
     ),
   );
   return finished.future;
