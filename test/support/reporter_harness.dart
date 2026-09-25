@@ -1,7 +1,6 @@
 import 'package:systicore_report/src/capture/error_type_namer.dart';
-import 'package:systicore_report/src/storage/reporter_storage.dart';
-import 'package:systicore_report/src/systicore_reporter.dart';
 import 'package:systicore_report/systicore_report.dart';
+import 'package:systicore_report/testing.dart';
 
 import 'fakes.dart';
 
@@ -38,11 +37,11 @@ ReporterConfig testConfig({
 class ReporterHarness {
   ReporterHarness({
     ReporterStorage? storage,
-    RecordingTransport? transport,
+    RecordingIngestTransport? transport,
     FakeClock? clock,
     ErrorTypeNamer? errorTypeNamer,
   })  : storage = storage ?? CountingStorage(),
-        transport = transport ?? RecordingTransport(),
+        transport = transport ?? RecordingIngestTransport(),
         clock = clock ?? FakeClock() {
     reporter = SysticoreReporter.withDependencies(
       ReporterDependencies(
@@ -60,11 +59,11 @@ class ReporterHarness {
   }
 
   final ReporterStorage storage;
-  final RecordingTransport transport;
+  final RecordingIngestTransport transport;
   final FakeClock clock;
   final ManualTimers timers = ManualTimers();
-  final FixedDeviceContextLoader deviceContextLoader =
-      FixedDeviceContextLoader();
+  final CountingDeviceContextLoader deviceContextLoader =
+      CountingDeviceContextLoader();
   late final SysticoreReporter reporter;
   int transportCreations = 0;
 

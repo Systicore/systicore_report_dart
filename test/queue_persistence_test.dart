@@ -4,8 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:systicore_report/src/delivery/persistent_report_queue.dart';
 import 'package:systicore_report/src/delivery/queued_report.dart';
 import 'package:systicore_report/src/delivery/report_dispatcher.dart';
-import 'package:systicore_report/src/storage/memory_reporter_storage.dart';
-import 'package:systicore_report/src/transport/ingest_outcome.dart';
+import 'package:systicore_report/testing.dart';
 
 import 'support/fakes.dart';
 import 'support/reporter_harness.dart';
@@ -32,7 +31,7 @@ void main() {
       final storage = MemoryReporterStorage();
       final offline = ReporterHarness(
         storage: storage,
-        transport: RecordingTransport(
+        transport: RecordingIngestTransport(
           [const IngestTransientFailure('connectionError')],
         ),
       );
@@ -84,7 +83,7 @@ void main() {
       final writesBeforeDrain = storage.writes;
       final dispatcher = ReportDispatcher(
         queue: queue,
-        transport: RecordingTransport(),
+        transport: RecordingIngestTransport(),
         bearerTokenFor: (_) async => null,
         clock: clock.call,
         createTimer: ManualTimers().call,
@@ -109,7 +108,7 @@ void main() {
       secondRun.reporter.report(code: 'X', message: 'two', action: 'a');
       await secondRun.reporter.flush();
 
-      String installIdOf(RecordingTransport transport) =>
+      String installIdOf(RecordingIngestTransport transport) =>
           (transport.sent.single.payload['device']!
               as Map<String, Object?>)['installId']! as String;
       expect(installIdOf(firstRun.transport), installIdOf(secondRun.transport));
@@ -119,7 +118,7 @@ void main() {
       final storage = MemoryReporterStorage();
       final harness = ReporterHarness(
         storage: storage,
-        transport: RecordingTransport(
+        transport: RecordingIngestTransport(
           [const IngestTransientFailure('HTTP 503')],
         ),
       );
@@ -160,7 +159,7 @@ void main() {
       final offline = ReporterHarness(
         storage: storage,
         clock: clock,
-        transport: RecordingTransport(
+        transport: RecordingIngestTransport(
           [const IngestTransientFailure('connectionError')],
         ),
       );

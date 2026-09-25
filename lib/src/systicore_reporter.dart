@@ -35,7 +35,8 @@ typedef IngestTransportFactory = IngestTransport Function(
 );
 
 /// Replaceable collaborators of [SysticoreReporter]; a null field means the
-/// production default.
+/// production default. Exported for tests by
+/// `package:systicore_report/testing.dart`.
 @immutable
 class ReporterDependencies {
   const ReporterDependencies({
@@ -48,12 +49,29 @@ class ReporterDependencies {
     this.errorTypeNamer,
   });
 
+  /// Holds the queue and the install id; default: a file in the app's
+  /// support directory (localStorage on the web).
   final ReporterStorage? storage;
+
+  /// Creates the transport once `init` knows the URL and key; default:
+  /// Dio posting to `/api/v1/ingest`.
   final IngestTransportFactory? transportFactory;
+
+  /// Describes the device; default: device_info_plus and
+  /// package_info_plus.
   final DeviceContextLoader? deviceContextLoader;
+
+  /// Time source for throttling, backoff and breadcrumbs.
   final Clock? clock;
+
+  /// Timers that wake the delivery up after backoff or `Retry-After`.
   final TimerFactory? createTimer;
+
+  /// Receives the uncaught-error handler that
+  /// [SysticoreReporter.installHandlers] chains in.
   final PlatformDispatcher? platformDispatcher;
+
+  /// Names error classes for `error.type`.
   final ErrorTypeNamer? errorTypeNamer;
 }
 
@@ -70,6 +88,8 @@ enum _Phase { awaitingInit, initialising, active, disabled }
 class SysticoreReporter {
   SysticoreReporter() : this.withDependencies(const ReporterDependencies());
 
+  /// A reporter on replaced collaborators, for tests; see
+  /// `package:systicore_report/testing.dart`.
   @visibleForTesting
   SysticoreReporter.withDependencies(ReporterDependencies dependencies)
       : _dependencies = dependencies,

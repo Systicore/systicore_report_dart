@@ -3,11 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:systicore_report/src/context/device_context_loader.dart';
-import 'package:systicore_report/src/model/device_context.dart';
-import 'package:systicore_report/src/storage/memory_reporter_storage.dart';
-import 'package:systicore_report/src/transport/ingest_outcome.dart';
-import 'package:systicore_report/src/transport/ingest_transport.dart';
+import 'package:systicore_report/testing.dart';
 
 /// Controllable time source.
 class FakeClock {
@@ -18,44 +14,6 @@ class FakeClock {
   DateTime call() => now;
 
   void advance(Duration duration) => now = now.add(duration);
-}
-
-/// One request a [RecordingTransport] received.
-class SentReport {
-  SentReport(this.payload, this.bearerToken);
-
-  final Map<String, Object?> payload;
-  final String? bearerToken;
-
-  Map<String, Object?> get error => payload['error']! as Map<String, Object?>;
-}
-
-/// Records payloads and answers with scripted outcomes (then 202).
-class RecordingTransport implements IngestTransport {
-  RecordingTransport([List<IngestOutcome>? scriptedOutcomes])
-      : _scriptedOutcomes = [...?scriptedOutcomes];
-
-  final List<IngestOutcome> _scriptedOutcomes;
-  final List<SentReport> sent = [];
-  bool closed = false;
-
-  void answerNext(IngestOutcome outcome) => _scriptedOutcomes.add(outcome);
-
-  @override
-  Future<IngestOutcome> send(
-    Map<String, Object?> payload, {
-    String? bearerToken,
-  }) async {
-    // Round-trip through JSON like the real transport, so tests see exactly
-    // what would go over the wire.
-    final wireCopy = jsonDecode(jsonEncode(payload)) as Map<String, Object?>;
-    sent.add(SentReport(wireCopy, bearerToken));
-    if (_scriptedOutcomes.isEmpty) return const IngestAccepted();
-    return _scriptedOutcomes.removeAt(0);
-  }
-
-  @override
-  void close() => closed = true;
 }
 
 /// Storage that counts accesses, to prove the disabled mode touches nothing.
@@ -76,20 +34,23 @@ class CountingStorage extends MemoryReporterStorage {
   }
 }
 
-class FixedDeviceContextLoader implements DeviceContextLoader {
+/// A Pixel 9 that counts how often the reporter asked for it.
+class CountingDeviceContextLoader extends FixedDeviceContextLoader {
+  CountingDeviceContextLoader()
+      : super(
+          brand: 'Google',
+          model: 'Pixel 9',
+          osVersion: 'Android 16',
+          apiLevel: 36,
+          appVersion: '1.4.2+17',
+        );
+
   int loads = 0;
 
   @override
-  Future<DeviceContext> load({required String installId}) async {
+  Future<DeviceContext> load({required String installId}) {
     loads++;
-    return DeviceContext(
-      brand: 'Google',
-      model: 'Pixel 9',
-      osVersion: 'Android 16',
-      apiLevel: 36,
-      appVersion: '1.4.2+17',
-      installId: installId,
-    );
+    return super.load(installId: installId);
   }
 }
 

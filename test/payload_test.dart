@@ -4,9 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:systicore_report/src/context/platform_name.dart';
 import 'package:systicore_report/src/support/uuid.dart';
-import 'package:systicore_report/src/systicore_reporter.dart';
 import 'package:systicore_report/src/transport/dio_ingest_transport.dart';
 import 'package:systicore_report/systicore_report.dart';
+import 'package:systicore_report/testing.dart';
 
 import 'support/fakes.dart';
 import 'support/reporter_harness.dart';
@@ -23,7 +23,7 @@ void main() {
       reporter = SysticoreReporter.withDependencies(
         ReporterDependencies(
           storage: CountingStorage(),
-          deviceContextLoader: FixedDeviceContextLoader(),
+          deviceContextLoader: CountingDeviceContextLoader(),
           transportFactory: (baseUri, ingestKey) => DioIngestTransport(
             baseUri: baseUri,
             ingestKey: ingestKey,
