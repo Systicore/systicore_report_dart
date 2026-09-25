@@ -123,17 +123,28 @@ class FakeHttpAnswer {
     this.statusCode, {
     this.headers = const {},
     this.body = '',
-  }) : failure = null;
+  })  : failure = null,
+        thrownError = null;
 
   const FakeHttpAnswer.failure(DioExceptionType this.failure)
       : statusCode = 0,
         headers = const {},
-        body = '';
+        body = '',
+        thrownError = null;
+
+  /// The adapter throws [thrownError] itself, as dart:io does, and dio
+  /// wraps it the way it wraps a real adapter's exception.
+  const FakeHttpAnswer.thrown(Object this.thrownError)
+      : statusCode = 0,
+        headers = const {},
+        body = '',
+        failure = null;
 
   final int statusCode;
   final Map<String, List<String>> headers;
   final String body;
   final DioExceptionType? failure;
+  final Object? thrownError;
 }
 
 /// Request as seen by [FakeHttpAdapter].
@@ -175,6 +186,8 @@ class FakeHttpAdapter implements HttpClientAdapter {
     if (failure != null) {
       throw DioException(requestOptions: options, type: failure);
     }
+    final thrownError = answer.thrownError;
+    if (thrownError != null) throw thrownError;
     return ResponseBody.fromString(
       answer.body,
       answer.statusCode,

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../model/report_severity.dart';
+import 'network_failure_cause.dart';
 
 /// The HTTP failures worth a report: the server broke (5xx) or the request
 /// never completed. 4xx answers are the app's normal business and are not
@@ -44,9 +45,9 @@ enum HttpFailureKind {
   };
 
   /// Null for failures that are not reported: 4xx, cancellations, bad
-  /// certificates and unknown errors. Written with ifs rather than an
-  /// exhaustive switch so a new DioExceptionType in a later dio 5.x release
-  /// cannot break compilation.
+  /// certificates and unknown errors other than network failures. Written
+  /// with ifs rather than an exhaustive switch so a new DioExceptionType in
+  /// a later dio 5.x release cannot break compilation.
   static HttpFailureKind? of(DioException exception) {
     final type = exception.type;
     if (type == DioExceptionType.badResponse) {
@@ -54,6 +55,11 @@ enum HttpFailureKind {
     }
     if (_timeoutTypes.contains(type)) return HttpFailureKind.timeout;
     if (type == DioExceptionType.connectionError) {
+      return HttpFailureKind.connectionError;
+    }
+    // A connection that broke after it was opened.
+    if (type == DioExceptionType.unknown &&
+        isNetworkFailureCause(exception.error)) {
       return HttpFailureKind.connectionError;
     }
     return null;

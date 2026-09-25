@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:systicore_report/src/dio/request_path_template.dart';
@@ -131,6 +133,59 @@ void main() {
         sentErrors().last['message'],
         'Timeout (receiveTimeout) on GET /api/items/:id',
       );
+    });
+
+    test('reports network failures that dio wraps as unknown', () async {
+      final networkFailures = <String, Object>{
+        '/api/reset': const SocketException('Connection reset by peer'),
+        '/api/headers': const HttpException(
+          'Connection closed before full header was received',
+        ),
+        '/api/tls': const HandshakeException('Handshake error in client'),
+      };
+      final exceptions = <DioException>[];
+      for (final entry in networkFailures.entries) {
+        appBackend.answerNext(FakeHttpAnswer.thrown(entry.value));
+        exceptions.add(await failingGet(entry.key));
+      }
+      await harness.reporter.flush();
+
+      for (final exception in exceptions) {
+        expect(exception.type, DioExceptionType.unknown);
+        expect(harness.reporter.isReported(exception), isTrue);
+      }
+      expect(
+        exceptions.map((exception) => exception.error),
+        networkFailures.values,
+      );
+      // The same code and message as a connectionError of the endpoint.
+      expect(sentErrors().map((error) => error['message']), [
+        'Connection error on GET /api/reset',
+        'Connection error on GET /api/headers',
+        'Connection error on GET /api/tls',
+      ]);
+      for (final error in sentErrors()) {
+        expect(error['code'], 'HTTP_CONNECTION_ERROR');
+        expect(error['severity'], 'warning');
+      }
+    });
+
+    test('ignores unknown failures without a network cause', () async {
+      appBackend
+        ..answerNext(
+          const FakeHttpAnswer.thrown(FormatException('Unexpected character')),
+        )
+        ..answerNext(
+          const FakeHttpAnswer.thrown(FileSystemException('Disk full')),
+        );
+
+      final decodingFailure = await failingGet('/api/decode');
+      final fileFailure = await failingGet('/api/download');
+      await harness.reporter.flush();
+
+      expect(decodingFailure.type, DioExceptionType.unknown);
+      expect(fileFailure.type, DioExceptionType.unknown);
+      expect(harness.transport.sent, isEmpty);
     });
 
     test('ignores cancelled requests and bad certificates', () async {
