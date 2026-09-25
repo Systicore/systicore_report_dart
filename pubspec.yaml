@@ -3,7 +3,7 @@ description: >-
   Error reporting client for Flutter apps that send crashes, unhandled
   errors and failed HTTP calls to the Systicore reports backend
   (POST /api/v1/ingest with a per-component ingest key).
-version: 0.1.0
+version: 0.2.0
 repository: https://github.com/Systicore/systicore_report_dart
 publish_to: none
 

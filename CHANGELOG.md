@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.2.0
+
+Fixes and additive options from the first round of app integrations
+(conduo, passguard, reverba and spike mobile). Apps on 0.1.0 compile
+unchanged.
+
+Fixes:
+
+- An error object is reported once. A `DioException` that
+  `ReportingInterceptor` had reported was reported again, as `UNHANDLED`
+  at `error` severity, when the app let it escape to the zone or
+  `PlatformDispatcher` handler; the same held for an error passed to
+  `captureException` and then rethrown. The reporter now remembers the
+  errors it reported for a minute (in an `Expando`, so nothing is kept
+  alive), and `captureException` and all global handlers skip them.
+- A request retried with `dio.fetch` inside an interceptor (a 401 refresh
+  retry) was observed by both chains: its breadcrumb was recorded twice,
+  and only the duplicate filter kept a second report out.
+  `ReportingInterceptor` now observes each `DioException` and `Response`
+  once, across `Dio` instances and for `copyWith` copies that keep the
+  response.
+- Connections that break after they were opened are reported. dio's IO
+  adapter reports a later `SocketException`, an `HttpException`
+  ("Connection closed before full header was received" before dio 5.10)
+  and a failed TLS handshake as `DioExceptionType.unknown`, which the
+  interceptor dropped. They are now `HTTP_CONNECTION_ERROR` warnings, like
+  `connectionError`. Other `unknown` errors stay unreported.
+
+Added:
+
+- `ReporterConfig.userIssuer` (also on `fromDartDefines`): sent as
+  `user.issuer` with the ids from `userIdProvider` and with `setUser`
+  calls that name no issuer.
+- `SysticoreReporter.markReported(error)` and `isReported(error)`, for
+  errors an app reports with `report` and then rethrows.
+- `runGuarded(appMain, zoneSpecification:, zoneValues:)`, passed on to
+  `runZonedGuarded`.
+- `package:systicore_report/testing.dart`: `ReporterDependencies`, the
+  transport, storage and device seams, `RecordingIngestTransport` and
+  `FixedDeviceContextLoader`, for app tests without `src/` imports.
+
 ## 0.1.0
 
 First release: extracted from the `ErrorReporter` / `ReportAPI` /

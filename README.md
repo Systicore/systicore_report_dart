@@ -27,7 +27,7 @@ dependencies:
   systicore_report:
     git:
       url: https://github.com/Systicore/systicore_report_dart.git
-      ref: v0.1.0
+      ref: v0.2.0
 ```
 
 Requirements: Dart `>=3.5.0 <4.0.0` (Flutter 3.24+). The dependency
@@ -79,6 +79,8 @@ void main() {
         // Return the token and user id the app already holds in memory.
         accessTokenProvider: () async => api.accessToken,
         userIdProvider: () => sessions.activeUserId,
+        // The issuer of those ids, sent as user.issuer.
+        userIssuer: 'https://auth.systicore.hu',
       ),
     );
     reporter.installHandlers();
@@ -89,7 +91,11 @@ void main() {
 
 - `runGuarded` wraps `runZonedGuarded` and reports errors that escape the
   zone. When reporting is disabled, the error is passed on to the
-  surrounding zone instead of being swallowed.
+  surrounding zone instead of being swallowed. Its optional
+  `zoneSpecification` and `zoneValues` go to `runZonedGuarded`, e.g. a
+  `print` handler that mirrors log lines into the app's own log viewer
+  (the specification's `handleUncaughtError` is replaced by the
+  reporter's, as in `runZonedGuarded`).
 - `installHandlers()` chains `FlutterError.onError` (the previous handler
   still runs, so debug builds keep printing errors) and
   `PlatformDispatcher.instance.onError`. The latter returns `true` only
@@ -98,6 +104,15 @@ void main() {
   these handlers last wins.
 - Errors captured before `init` completes are buffered, up to 50, and sent
   once `init` knows the release and device.
+- An error object is reported once. An error that was already reported
+  (by `captureException`, by `ReportingInterceptor` or marked with
+  `markReported`) and is then rethrown or left uncaught is not reported
+  again by the handlers; they count it as handled. The memory lasts a
+  minute, so a `const` exception, which is the same object every time, is
+  still reported again after that, like any repeated error.
+- `userIssuer` is sent as `user.issuer` with the ids from `userIdProvider`
+  and with `setUser` calls that name no issuer. Without it, and without a
+  valid Bearer token, the backend stores the user as `claimed:<source>`.
 - `init` must run after `WidgetsFlutterBinding.ensureInitialized()`.
   Otherwise the platform plugins are not available yet, and the device info
   and the persistent queue quietly fall back to empty.
@@ -116,8 +131,15 @@ unchanged.
 
 - Status `>= 500` is reported as `error` with code `HTTP_<status>`.
 - Connection errors and timeouts are reported as `warning`. They are
-  visible in the admin UI but never open a GitHub issue.
-- 4xx answers, cancellations and certificate errors are not reported.
+  visible in the admin UI but never open a GitHub issue. This includes a
+  connection that breaks after it was opened: dio reports a later
+  `SocketException`, an `HttpException` ("Connection closed before full
+  header was received" before dio 5.10) or a failed TLS handshake as
+  `DioExceptionType.unknown`, and the interceptor reports those as
+  `HTTP_CONNECTION_ERROR` too.
+- 4xx answers, cancellations, the app's own certificate check
+  (`badCertificate`) and other `unknown` errors (e.g. response decoding)
+  are not reported.
 - Requests to the reports host itself are ignored.
 - The action is a route template (`GET /api/vault/:id`): the query string
   is dropped, and numeric, UUID, hex, token-like and e-mail path segments
@@ -125,10 +147,20 @@ unchanged.
 - The `x-request-id` response header, if present, is sent as
   `context.requestId`.
 - Every finished request is also recorded as an `http` breadcrumb.
+- A reported `DioException` is marked as reported. When the app lets it
+  escape (an `async` `onPressed` without `try`/`catch`), the global
+  handlers do not report it a second time, and `captureException` of it
+  sends nothing.
+- Each outcome is recorded once. A request retried with `dio.fetch` inside
+  an interceptor (a 401 refresh retry) passes the whole chain again, and
+  its outcome then travels on through the outer chain. The interceptor
+  records and reports it only the first time, also when the retry runs on
+  another `Dio` or the app passes on a `copyWith` of the exception.
 
-If an app already reports some HTTP failures by hand, pick one of the two
-paths per client. The client-side duplicate filter does not merge a manual
-report with an interceptor report, because their codes differ.
+If an app already reports some HTTP failures by hand with `report`, pick
+one of the two paths per client: the client-side duplicate filter does not
+merge a manual report with an interceptor report, because their codes
+differ.
 
 ## Manual reports
 
@@ -154,6 +186,19 @@ reporter.setUser('42', issuer: 'https://auth.systicore.hu'); // overrides userId
 reporter.setRoute('/vault/:id');                              // sent as context.route
 reporter.addBreadcrumb('opened vault', category: BreadcrumbCategory.nav);
 await reporter.flush();                                       // e.g. when the app goes to the background
+```
+
+A report made with `report` carries no error object, so the reporter
+cannot recognise the error later. When the app reports a caught exception
+that way and then rethrows it, mark it, so the global handlers do not
+report it again:
+
+```dart
+} on VaultSyncException catch (error, stackTrace) {
+  reporter.report(code: 'VAULT_SYNC_FAILED', message: 'Vault sync failed', trace: '$stackTrace', action: 'VaultSync');
+  reporter.markReported(error); // reporter.isReported(error) is now true
+  rethrow;
+}
 ```
 
 ### Web release and obfuscated builds
@@ -238,6 +283,42 @@ browser's `localStorage`, and falls back to memory where storage is
 blocked. Flutter web sends the key in the `X-Systicore-Key` header, so the
 browser makes a CORS preflight, which the ingest route answers.
 
+## Testing an app
+
+`package:systicore_report/testing.dart` exports the reporter's test seams.
+An app can test through the real reporter without platform plugins,
+network or `src/` imports:
+
+```dart
+import 'package:systicore_report/systicore_report.dart';
+import 'package:systicore_report/testing.dart';
+
+final transport = RecordingIngestTransport(); // or RecordingIngestTransport([IngestRejected(401)])
+final reporter = SysticoreReporter.withDependencies(
+  ReporterDependencies(
+    storage: MemoryReporterStorage(),
+    transportFactory: (baseUri, ingestKey) => transport,
+    deviceContextLoader: const FixedDeviceContextLoader(),
+  ),
+);
+await reporter.init(config); // an enabled config with a scpk_ key
+dio.interceptors.add(ReportingInterceptor(reporter: reporter));
+// ... exercise the app code ...
+await reporter.flush();
+expect(transport.sent.single.error['code'], 'HTTP_503');
+```
+
+- `RecordingIngestTransport` records each request (`payload` as it would
+  go over the wire, `bearerToken`, `error`) and answers with the scripted
+  `IngestOutcome`s, then with `IngestAccepted`.
+- `FixedDeviceContextLoader` describes a made-up device.
+- `ReporterDependencies` also takes a `clock` and a timer factory
+  (`createTimer`) for backoff and throttling tests. The `IngestTransport`,
+  `ReporterStorage` and `DeviceContextLoader` interfaces are exported for
+  your own fakes.
+- `SysticoreReporter.withDependencies` is `@visibleForTesting`: use it in
+  test code only.
+
 ## Development
 
 ```sh
@@ -253,5 +334,5 @@ package_info_plus 8.0.2, path_provider 2.1.0). A temporary
 transitive `platform 3.0.0` that a full downgrade picks does not compile on
 Dart 3. Normal resolution never picks it.
 
-Releases are git tags (`v0.1.0`, …). Bump `version` in `pubspec.yaml`, add a
-`CHANGELOG.md` entry, and tag.
+Releases are git tags (`v0.1.0`, `v0.2.0`, …). Bump `version` in
+`pubspec.yaml`, add a `CHANGELOG.md` entry, and tag.
