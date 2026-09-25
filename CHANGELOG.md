@@ -26,7 +26,9 @@ Fixes:
   ("Connection closed before full header was received" before dio 5.10)
   and a failed TLS handshake as `DioExceptionType.unknown`, which the
   interceptor dropped. They are now `HTTP_CONNECTION_ERROR` warnings, like
-  `connectionError`. Other `unknown` errors stay unreported.
+  `connectionError`. Other `unknown` errors stay unreported, including a
+  `RedirectException` (a redirect loop or too many redirects), which is
+  an `HttpException` but not a broken connection.
 
 Added:
 

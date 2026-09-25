@@ -138,8 +138,9 @@ unchanged.
   `DioExceptionType.unknown`, and the interceptor reports those as
   `HTTP_CONNECTION_ERROR` too.
 - 4xx answers, cancellations, the app's own certificate check
-  (`badCertificate`) and other `unknown` errors (e.g. response decoding)
-  are not reported.
+  (`badCertificate`) and other `unknown` errors (e.g. response decoding,
+  or a `RedirectException` for a redirect loop or too many redirects) are
+  not reported.
 - Requests to the reports host itself are ignored.
 - The action is a route template (`GET /api/vault/:id`): the query string
   is dropped, and numeric, UUID, hex, token-like and e-mail path segments

@@ -177,14 +177,22 @@ void main() {
         )
         ..answerNext(
           const FakeHttpAnswer.thrown(FileSystemException('Disk full')),
+        )
+        ..answerNext(
+          const FakeHttpAnswer.thrown(
+            RedirectException('Redirect loop detected', []),
+          ),
         );
 
       final decodingFailure = await failingGet('/api/decode');
       final fileFailure = await failingGet('/api/download');
+      final redirectFailure = await failingGet('/api/moved');
       await harness.reporter.flush();
 
       expect(decodingFailure.type, DioExceptionType.unknown);
       expect(fileFailure.type, DioExceptionType.unknown);
+      expect(redirectFailure.type, DioExceptionType.unknown);
+      expect(redirectFailure.error, isA<RedirectException>());
       expect(harness.transport.sent, isEmpty);
     });
 
