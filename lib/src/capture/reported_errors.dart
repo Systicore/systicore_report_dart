@@ -1,8 +1,8 @@
 import '../support/clock.dart';
 
 /// Remembers the error objects reported within the last [window], so an
-/// error that is rethrown, or escapes to a global handler after it was
-/// reported, is not reported a second time under another code.
+/// error that reaches a global handler after it was reported (rethrown, or
+/// never caught) is not reported a second time under another code.
 ///
 /// Errors are compared by identity and held in an [Expando], so a
 /// remembered error is not kept alive. The window matters for errors that

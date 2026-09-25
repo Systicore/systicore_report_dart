@@ -109,7 +109,10 @@ void main() {
   `markReported`) and is then rethrown or left uncaught is not reported
   again by the handlers; they count it as handled. The memory lasts a
   minute, so a `const` exception, which is the same object every time, is
-  still reported again after that, like any repeated error.
+  still reported again after that, like any repeated error. Only the
+  handlers skip a reported error: an explicit `captureException` is always
+  sent (the duplicate filter still merges an identical repeat), so the app
+  can add its own code to a failure the interceptor already reported.
 - `userIssuer` is sent as `user.issuer` with the ids from `userIdProvider`
   and with `setUser` calls that name no issuer. Without it, and without a
   valid Bearer token, the backend stores the user as `claimed:<source>`.
@@ -150,8 +153,8 @@ unchanged.
 - Every finished request is also recorded as an `http` breadcrumb.
 - A reported `DioException` is marked as reported. When the app lets it
   escape (an `async` `onPressed` without `try`/`catch`), the global
-  handlers do not report it a second time, and `captureException` of it
-  sends nothing.
+  handlers do not report it a second time. An explicit `captureException`
+  of it (say under the app's own code) is sent as a report of its own.
 - Each outcome is recorded once. A request retried with `dio.fetch` inside
   an interceptor (a 401 refresh retry) passes the whole chain again, and
   its outcome then travels on through the outer chain. The interceptor

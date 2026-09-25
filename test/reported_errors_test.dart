@@ -101,20 +101,60 @@ void main() {
       expect(harness.transport.sent.single.error['code'], 'BUILD_FAILED');
     });
 
-    test('markReported keeps captureException and the handlers quiet',
-        () async {
+    test('markReported keeps the handlers quiet', () async {
       final error = StateError('reported elsewhere');
       harness.reporter.markReported(error);
 
-      final captured =
-          harness.reporter.captureException(error, StackTrace.current);
       final handled =
           PlatformDispatcher.instance.onError!(error, StackTrace.current);
+      FlutterError.onError!(FlutterErrorDetails(exception: error));
+      await harness.reporter.flush();
+
+      expect(handled, isTrue);
+      expect(frameworkErrorsSeenBefore, hasLength(1));
+      expect(harness.transport.sent, isEmpty);
+    });
+
+    test('an explicit captureException of a reported error is sent', () async {
+      final error = StateError('reported elsewhere');
+      harness.reporter.markReported(error);
+
+      final captured = harness.reporter
+          .captureException(error, StackTrace.current, code: 'SYNC_FAILED');
       await harness.reporter.flush();
 
       expect(captured, isTrue);
-      expect(handled, isTrue);
-      expect(harness.transport.sent, isEmpty);
+      expect(harness.transport.sent.single.error['code'], 'SYNC_FAILED');
+    });
+
+    test('the same error object captured under two codes is sent twice',
+        () async {
+      const error = _ConstantFailure();
+
+      harness.reporter.captureException(error, null, code: 'FIRST_SITE');
+      harness.reporter.captureException(error, null, code: 'SECOND_SITE');
+      // An identical repeat is still merged by the duplicate filter.
+      final repeated =
+          harness.reporter.captureException(error, null, code: 'SECOND_SITE');
+      PlatformDispatcher.instance.onError!(error, StackTrace.current);
+      await harness.reporter.flush();
+
+      expect(repeated, isTrue);
+      expect(
+        harness.transport.sent.map((sent) => sent.error['code']),
+        ['FIRST_SITE', 'SECOND_SITE'],
+      );
+    });
+
+    test('nothing counts as reported while reporting is disabled', () async {
+      final error = StateError('reported before dispose');
+      harness.reporter.markReported(error);
+      harness.reporter.dispose();
+
+      final handled =
+          PlatformDispatcher.instance.onError!(error, StackTrace.current);
+
+      expect(handled, isFalse);
     });
 
     test('the same const error is reported again after the window', () async {
@@ -204,6 +244,24 @@ void main() {
       await harness.reporter.flush();
 
       expect(harness.transport.sent.single.error['code'], 'HTTP_503');
+    });
+
+    test('is still sent when the app captures it under its own code', () async {
+      appBackend.answerNext(const FakeHttpAnswer.status(503));
+
+      final exception = await failingGet('/api/sync');
+      harness.reporter.captureException(
+        exception,
+        StackTrace.current,
+        code: 'SYNC_FAILED',
+      );
+      PlatformDispatcher.instance.onError!(exception, StackTrace.current);
+      await harness.reporter.flush();
+
+      expect(
+        harness.transport.sent.map((sent) => sent.error['code']),
+        ['HTTP_503', 'SYNC_FAILED'],
+      );
     });
 
     test('a 4xx the interceptor left alone is still reported uncaught',

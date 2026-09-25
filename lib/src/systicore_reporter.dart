@@ -170,9 +170,11 @@ class SysticoreReporter {
   /// Reports a caught exception. Returns true when the reporter took it
   /// over (queued, or a duplicate of one queued within the last minute).
   ///
-  /// An error object is reported once: when [error] was reported within
-  /// the last minute (by an earlier call, by `ReportingInterceptor` or
-  /// through [markReported]), nothing is sent again and true is returned.
+  /// Once taken, [error] counts as reported: when the app rethrows it or
+  /// lets it escape, the global handlers ([installHandlers], [runGuarded])
+  /// do not report it again. An explicit call is always judged on its own,
+  /// also for an error reported before (e.g. by `ReportingInterceptor`),
+  /// so a report under another [code] or [action] is sent.
   ///
   /// The class name is sent as `type`, except in minified (web release) and
   /// obfuscated builds, whose class names change with every build. There,
@@ -197,10 +199,10 @@ class SysticoreReporter {
     );
   }
 
-  /// Marks [error] as reported, so for the next minute neither
-  /// [captureException] nor the global handlers ([installHandlers],
-  /// [runGuarded]) report it again when the app passes it on or lets it
-  /// escape uncaught.
+  /// Marks [error] as reported, so for the next minute the global handlers
+  /// ([installHandlers], [runGuarded]) do not report it again when the app
+  /// rethrows it or lets it escape uncaught. An explicit [captureException]
+  /// of it is still sent.
   ///
   /// `ReportingInterceptor` marks the `DioException`s it reports. Call this
   /// after reporting an error some other way, for example with [report].
@@ -414,6 +416,7 @@ class SysticoreReporter {
   bool _captureFlutterError(FlutterErrorDetails details) {
     // Silent errors (e.g. a failed network image) are expected noise.
     if (details.silent) return false;
+    if (_isAlreadyReported(details.exception)) return true;
     return _captureError(
       thrown: details.exception,
       type: _errorTypeNamer.nameOf(details.exception),
@@ -425,6 +428,7 @@ class SysticoreReporter {
   }
 
   bool _captureUncaughtError(Object error, StackTrace stackTrace) {
+    if (_isAlreadyReported(error)) return true;
     return _captureError(
       thrown: error,
       type: _errorTypeNamer.nameOf(error),
@@ -435,9 +439,15 @@ class SysticoreReporter {
     );
   }
 
-  // [thrown] is the error object behind the report, if there is one. It is
-  // reported once: a rethrown or escaping error that was already reported
-  // counts as taken over without a second report.
+  // An error that reaches a global handler after it was reported (rethrown,
+  // or escaping uncaught) counts as taken over without a second report.
+  // Only the global handlers skip it; explicit calls are judged on their
+  // own. With reporting disabled nothing is taken over.
+  bool _isAlreadyReported(Object error) =>
+      _phase != _Phase.disabled && isReported(error);
+
+  // [thrown] is the error object behind the report, if there is one. Once
+  // the report is taken, it is remembered for [_isAlreadyReported].
   bool _captureError({
     Object? thrown,
     String? type,
@@ -451,7 +461,6 @@ class SysticoreReporter {
   }) {
     if (_phase == _Phase.disabled) return false;
     try {
-      if (thrown != null && _reportedErrors.contains(thrown)) return true;
       final taken = _accept(
         CapturedError(
           capturedAt: _clock(),

@@ -14,7 +14,9 @@ Fixes:
   `PlatformDispatcher` handler; the same held for an error passed to
   `captureException` and then rethrown. The reporter now remembers the
   errors it reported for a minute (in an `Expando`, so nothing is kept
-  alive), and `captureException` and all global handlers skip them.
+  alive), and the global handlers skip them. An explicit
+  `captureException` call is still judged on its own, as in 0.1.0, so the
+  same error object captured under another code or action is sent.
 - A request retried with `dio.fetch` inside an interceptor (a 401 refresh
   retry) was observed by both chains: its breadcrumb was recorded twice,
   and only the duplicate filter kept a second report out.
