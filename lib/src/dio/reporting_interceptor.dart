@@ -18,6 +18,12 @@ import 'request_path_template.dart';
 /// A `DioException` it reports is marked with
 /// [SysticoreReporter.markReported]: when the app lets it escape uncaught,
 /// the global handlers do not report it a second time.
+///
+/// Each outcome is observed once. A request retried with `dio.fetch`
+/// inside an interceptor (a 401 refresh retry) passes the whole chain
+/// again, and its outcome then travels on through the outer chain: the
+/// same `DioException` or `Response`, or a copy of the exception that keeps
+/// its response. It is recorded and reported only the first time.
 class ReportingInterceptor extends Interceptor {
   ReportingInterceptor({
     SysticoreReporter? reporter,
@@ -30,6 +36,10 @@ class ReportingInterceptor extends Interceptor {
   final bool recordBreadcrumbs;
 
   static const String _requestIdHeader = 'x-request-id';
+
+  // Shared by every instance: the retry may run on another Dio.
+  static final Expando<bool> _observedOutcomes =
+      Expando<bool>('systicore_report.observed');
 
   @override
   void onResponse(
@@ -51,6 +61,7 @@ class ReportingInterceptor extends Interceptor {
   void _observeResponse(Response<dynamic> response) {
     final request = response.requestOptions;
     if (_reporter.isReportsEndpoint(request.uri)) return;
+    if (!_isFirstObservation(response)) return;
     final statusCode = response.statusCode;
     _recordBreadcrumb(request, '${statusCode ?? '-'}');
     final failure = HttpFailureKind.fromStatusCode(statusCode);
@@ -66,6 +77,7 @@ class ReportingInterceptor extends Interceptor {
   void _observeFailure(DioException exception) {
     final request = exception.requestOptions;
     if (_reporter.isReportsEndpoint(request.uri)) return;
+    if (!_isFirstObservation(exception, exception.response)) return;
     final statusCode = exception.response?.statusCode;
     _recordBreadcrumb(request, '${statusCode ?? exception.type.name}');
     final failure = HttpFailureKind.of(exception);
@@ -113,6 +125,19 @@ class ReportingInterceptor extends Interceptor {
       '$method ${pathTemplateOf(request.uri)} $outcome',
       category: BreadcrumbCategory.http,
     );
+  }
+
+  /// Marks [outcome] and the [response] it carries as observed. False when
+  /// either was observed before.
+  static bool _isFirstObservation(
+    Object outcome, [
+    Response<dynamic>? response,
+  ]) {
+    final observedBefore = (_observedOutcomes[outcome] ?? false) ||
+        (response != null && (_observedOutcomes[response] ?? false));
+    _observedOutcomes[outcome] = true;
+    if (response != null) _observedOutcomes[response] = true;
+    return !observedBefore;
   }
 
   static void _observeSafely(void Function() observe) {

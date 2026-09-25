@@ -6,6 +6,35 @@ import 'package:systicore_report/systicore_report.dart';
 import 'support/fakes.dart';
 import 'support/reporter_harness.dart';
 
+/// An app's token refresh: on a 401 it retries the request once on the
+/// same Dio and passes the retry's outcome on through the outer chain.
+class _RetryOnUnauthorized extends Interceptor {
+  _RetryOnUnauthorized(this.dio, {this.copyRetryFailure = false});
+
+  final Dio dio;
+
+  /// Passes on a copy of the retry's DioException instead of the original.
+  final bool copyRetryFailure;
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    if (err.response?.statusCode != 401) return handler.next(err);
+    try {
+      final response = await dio.fetch<dynamic>(err.requestOptions);
+      handler.resolve(response);
+    } on DioException catch (retryFailure) {
+      handler.next(
+        copyRetryFailure
+            ? retryFailure.copyWith(message: 'retry failed')
+            : retryFailure,
+      );
+    }
+  }
+}
+
 void main() {
   group('ReportingInterceptor', () {
     late ReporterHarness harness;
@@ -179,6 +208,97 @@ void main() {
 
       expect(response.statusCode, 500);
       expect(disabled.transport.sent, isEmpty);
+    });
+  });
+
+  group('ReportingInterceptor with a retry on the same Dio', () {
+    late ReporterHarness harness;
+    late FakeHttpAdapter appBackend;
+
+    setUp(() async {
+      harness = ReporterHarness();
+      await harness.start();
+      appBackend = FakeHttpAdapter();
+    });
+
+    tearDown(() => harness.reporter.dispose());
+
+    Dio retryingDio({bool copyRetryFailure = false}) {
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend;
+      dio.interceptors
+        ..add(_RetryOnUnauthorized(dio, copyRetryFailure: copyRetryFailure))
+        ..add(ReportingInterceptor(reporter: harness.reporter));
+      return dio;
+    }
+
+    // A later report carries every breadcrumb recorded so far.
+    Future<List<Object?>> breadcrumbMessages() async {
+      harness.reporter.report(code: 'PROBE', message: 'probe', action: 'test');
+      await harness.reporter.flush();
+      final context = harness.transport.sent.last.payload['context']!
+          as Map<String, Object?>;
+      return [
+        for (final breadcrumb in context['breadcrumbs']! as List<Object?>)
+          (breadcrumb! as Map<String, Object?>)['message'],
+      ];
+    }
+
+    for (final copyRetryFailure in [false, true]) {
+      final passedOn = copyRetryFailure ? 'a copy of it' : 'it';
+      test('a failed retry is reported once when the app passes on $passedOn',
+          () async {
+        final dio = retryingDio(copyRetryFailure: copyRetryFailure);
+        appBackend
+          ..answerNext(const FakeHttpAnswer.status(401))
+          ..answerNext(const FakeHttpAnswer.status(503));
+
+        await expectLater(
+          dio.get<String>('/api/sync'),
+          throwsA(isA<DioException>()),
+        );
+        await harness.reporter.flush();
+
+        expect(appBackend.requests, hasLength(2));
+        expect(harness.transport.sent.single.error['code'], 'HTTP_503');
+        expect(await breadcrumbMessages(), ['GET /api/sync 503']);
+      });
+    }
+
+    test('a successful retry is recorded once', () async {
+      final dio = retryingDio();
+      appBackend
+        ..answerNext(const FakeHttpAnswer.status(401))
+        ..answerNext(const FakeHttpAnswer.status(200, body: 'ok'));
+
+      final response = await dio.get<String>('/api/sync');
+
+      expect(response.data, 'ok');
+      expect(await breadcrumbMessages(), ['GET /api/sync 200']);
+      expect(harness.transport.sent.single.error['code'], 'PROBE');
+    });
+
+    test('a retry through a second Dio is reported once', () async {
+      final retryDio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend
+        ..interceptors.add(ReportingInterceptor(reporter: harness.reporter));
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'))
+        ..httpClientAdapter = appBackend;
+      dio.interceptors
+        ..add(_RetryOnUnauthorized(retryDio))
+        ..add(ReportingInterceptor(reporter: harness.reporter));
+      appBackend
+        ..answerNext(const FakeHttpAnswer.status(401))
+        ..answerNext(const FakeHttpAnswer.status(502));
+
+      await expectLater(
+        dio.get<String>('/api/sync'),
+        throwsA(isA<DioException>()),
+      );
+      await harness.reporter.flush();
+
+      expect(harness.transport.sent.single.error['code'], 'HTTP_502');
+      expect(await breadcrumbMessages(), ['GET /api/sync 502']);
     });
   });
 
