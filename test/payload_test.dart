@@ -35,7 +35,7 @@ void main() {
 
     tearDown(() => reporter.dispose());
 
-    Future<void> startReporter() => reporter.init(
+    Future<void> startReporter({String? userIssuer}) => reporter.init(
           testConfig(
             baseUrl: '$testBaseUrl/',
             release: const ReleaseInfo(
@@ -44,6 +44,7 @@ void main() {
             ),
             accessTokenProvider: () async => 'access-token-1',
             userIdProvider: () => signedInUserId,
+            userIssuer: userIssuer,
           ),
         );
 
@@ -221,6 +222,58 @@ void main() {
         'id': '7',
         'issuer': 'https://auth.systicore.hu',
       });
+    });
+
+    test('userIssuer is sent with the id from userIdProvider', () async {
+      await startReporter(userIssuer: ' https://auth.systicore.hu ');
+
+      reporter.report(code: 'X', message: 'm', action: 'a');
+      await reporter.flush();
+
+      final request = adapter.requests.single;
+      expect(request.json['user'], {
+        'id': '42',
+        'issuer': 'https://auth.systicore.hu',
+      });
+      expect(request.options.headers['Authorization'], 'Bearer access-token-1');
+    });
+
+    test('userIssuer fills in setUser without an issuer, not over one',
+        () async {
+      await startReporter(userIssuer: 'https://auth.systicore.hu');
+
+      reporter.setUser('7');
+      reporter.report(code: 'X', message: 'without issuer', action: 'a');
+      reporter.setUser('8', issuer: 'https://auth.example');
+      reporter.report(code: 'X', message: 'with issuer', action: 'a');
+      await reporter.flush();
+
+      expect(adapter.requests.map((request) => request.json['user']), [
+        {'id': '7', 'issuer': 'https://auth.systicore.hu'},
+        {'id': '8', 'issuer': 'https://auth.example'},
+      ]);
+    });
+
+    test('userIssuer also reaches reports captured before init', () async {
+      reporter.setUser('7');
+      reporter.report(code: 'X', message: 'early', action: 'a');
+
+      await startReporter(userIssuer: 'https://auth.systicore.hu');
+      await reporter.flush();
+
+      expect(adapter.requests.single.json['user'], {
+        'id': '7',
+        'issuer': 'https://auth.systicore.hu',
+      });
+    });
+
+    test('a blank userIssuer sends no issuer', () async {
+      await startReporter(userIssuer: '  ');
+
+      reporter.report(code: 'X', message: 'm', action: 'a');
+      await reporter.flush();
+
+      expect(adapter.requests.single.json['user'], {'id': '42'});
     });
   });
 }

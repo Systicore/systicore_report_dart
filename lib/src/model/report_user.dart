@@ -9,8 +9,18 @@ class ReportUser {
   final String id;
   final String? issuer;
 
+  bool get hasIssuer => issuer != null && issuer!.isNotEmpty;
+
+  /// This user, with [fallbackIssuer] as the issuer when it has none.
+  ReportUser withFallbackIssuer(String? fallbackIssuer) {
+    if (hasIssuer || fallbackIssuer == null || fallbackIssuer.isEmpty) {
+      return this;
+    }
+    return ReportUser(id: id, issuer: fallbackIssuer);
+  }
+
   Map<String, Object?> toJson() => {
         'id': id,
-        if (issuer != null && issuer!.isNotEmpty) 'issuer': issuer,
+        if (hasIssuer) 'issuer': issuer,
       };
 }

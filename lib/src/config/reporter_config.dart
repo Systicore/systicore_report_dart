@@ -42,6 +42,7 @@ class ReporterConfig {
     this.release = const ReleaseInfo(),
     this.accessTokenProvider,
     this.userIdProvider,
+    this.userIssuer,
     this.maxQueue = defaultMaxQueue,
   });
 
@@ -56,6 +57,7 @@ class ReporterConfig {
     String? buildTime,
     AccessTokenProvider? accessTokenProvider,
     UserIdProvider? userIdProvider,
+    String? userIssuer,
     int maxQueue = defaultMaxQueue,
   }) {
     return ReporterConfig(
@@ -71,6 +73,7 @@ class ReporterConfig {
       ),
       accessTokenProvider: accessTokenProvider,
       userIdProvider: userIdProvider,
+      userIssuer: userIssuer,
       maxQueue: maxQueue,
     );
   }
@@ -116,6 +119,14 @@ class ReporterConfig {
 
   /// Supplies the user id attached to captured errors.
   final UserIdProvider? userIdProvider;
+
+  /// Issuer of the user ids this app reports, e.g.
+  /// `https://auth.systicore.hu`. Sent as `user.issuer` with the ids from
+  /// [userIdProvider] and with `setUser` calls that name no issuer of their
+  /// own. Without it the backend stores such a user as `claimed:<source>`.
+  /// A valid Bearer token from [accessTokenProvider] still wins: the backend
+  /// then takes the issuer from the token.
+  final String? userIssuer;
 
   /// Maximum number of reports waiting for delivery; the oldest is dropped
   /// when a new one would exceed it.

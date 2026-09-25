@@ -17,6 +17,7 @@ ReporterConfig testConfig({
   ReleaseInfo release = const ReleaseInfo(commit: 'abc1234'),
   AccessTokenProvider? accessTokenProvider,
   UserIdProvider? userIdProvider,
+  String? userIssuer,
   int maxQueue = ReporterConfig.defaultMaxQueue,
 }) {
   return ReporterConfig(
@@ -28,6 +29,7 @@ ReporterConfig testConfig({
     release: release,
     accessTokenProvider: accessTokenProvider,
     userIdProvider: userIdProvider,
+    userIssuer: userIssuer,
     maxQueue: maxQueue,
   );
 }

@@ -205,7 +205,8 @@ class SysticoreReporter {
   }
 
   /// Sets the user attached to later reports; null clears it. An explicit
-  /// user wins over [ReporterConfig.userIdProvider].
+  /// user wins over [ReporterConfig.userIdProvider]. Without an [issuer],
+  /// [ReporterConfig.userIssuer] is sent.
   void setUser(String? id, {String? issuer}) {
     final trimmed = id?.trim() ?? '';
     _explicitUser =

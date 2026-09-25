@@ -3,8 +3,9 @@ import 'package:flutter/foundation.dart';
 import '../config/reporter_config.dart';
 import '../model/device_context.dart';
 
-/// The per-process part of every report: release, environment, platform
-/// and device. Resolved once during `init`.
+/// The per-process part of every report: release, environment, platform,
+/// device and the issuer of the app's user ids. Resolved once during
+/// `init`.
 @immutable
 class ReportEnvelope {
   const ReportEnvelope({
@@ -12,6 +13,7 @@ class ReportEnvelope {
     required this.environment,
     required this.platform,
     required this.device,
+    this.userIssuer,
   });
 
   /// Fills a missing release version from the installed package version.
@@ -21,6 +23,7 @@ class ReportEnvelope {
     required String? platform,
   }) {
     final configuredVersion = config.release.version?.trim() ?? '';
+    final userIssuer = config.userIssuer?.trim() ?? '';
     return ReportEnvelope(
       release: ReleaseInfo(
         version: configuredVersion.isNotEmpty
@@ -32,6 +35,7 @@ class ReportEnvelope {
       environment: config.environment,
       platform: platform,
       device: device,
+      userIssuer: userIssuer.isEmpty ? null : userIssuer,
     );
   }
 
@@ -42,4 +46,7 @@ class ReportEnvelope {
   /// the platform has no contract name.
   final String? platform;
   final DeviceContext device;
+
+  /// Issuer for a report's user id that came without one.
+  final String? userIssuer;
 }
