@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Allows device_info_plus 13 and package_info_plus 10, the first majors on
+  win32 6. With the old caps an app on share_plus 13 could not resolve the
+  reporter at all. No code change.
+
+The package continues in the systicore_flutter monorepo
+(`packages/systicore_report`, from 0.3.0).
+
 ## 0.2.0
 
 Fixes and additive options from the first round of app integrations

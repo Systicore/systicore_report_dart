@@ -3,7 +3,7 @@ description: >-
   Error reporting client for Flutter apps that send crashes, unhandled
   errors and failed HTTP calls to the Systicore reports backend
   (POST /api/v1/ingest with a per-component ingest key).
-version: 0.2.0
+version: 0.2.1
 repository: https://github.com/Systicore/systicore_report_dart
 publish_to: none
 
@@ -14,13 +14,15 @@ environment:
 # Constraints are deliberately wide: the consuming apps pin different
 # majors of the plus plugins (reverba device_info_plus ^11, spike and
 # passguard ^12; conduo package_info_plus ^8, passguard ^9) and the package
-# must resolve next to all of them without forcing an upgrade.
+# must resolve next to all of them without forcing an upgrade. The upper
+# caps reach device_info_plus 13 / package_info_plus 10, the first majors
+# on win32 6: an app on share_plus 13 (win32 ^6) cannot resolve otherwise.
 dependencies:
   flutter:
     sdk: flutter
   dio: ^5.7.0
-  device_info_plus: ">=11.0.0 <13.0.0"
-  package_info_plus: ">=8.0.0 <10.0.0"
+  device_info_plus: ">=11.0.0 <14.0.0"
+  package_info_plus: ">=8.0.0 <11.0.0"
   path_provider: ^2.1.0
 
 dev_dependencies:
